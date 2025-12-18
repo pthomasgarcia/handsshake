@@ -1,0 +1,30 @@
+# Environment variables
+.env
+
+# Application state and logs (XDG defaults and legacy)
+logs/
+*.log
+*.env
+*.list
+*.lock
+ssh-agent.env
+
+# User specific
+commit_message.txt
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+test/bats-tmp/
+
+# Local XDG mocks
+.config/handsshake/
+.local/state/handsshake/
