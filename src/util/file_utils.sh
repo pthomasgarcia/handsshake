@@ -1,9 +1,9 @@
-set -euo pipefail
+# shellcheck shell=bash
 
-if [[ -n "${FILE_UTILS_LOADED:-}" ]]; then
+if [[ -n "${HANDSSHAKE_FILE_UTILS_LOADED:-}" ]]; then
     return 0
 fi
-readonly FILE_UTILS_LOADED=true
+HANDSSHAKE_FILE_UTILS_LOADED=true
 
 # Source logging utilities
 source "$(dirname "${BASH_SOURCE[0]}")/logging_utils.sh"
@@ -91,7 +91,17 @@ atomic_write() {
 
     validate_filepath_arg "$file" "atomic_write: No file path provided." || return 1
 
-    temp_file="${file}.tmp.$$"
+    # Use mktemp to create a unique temporary file in the target directory
+    # This ensures the atomic 'mv' works successfully (same filesystem).
+    local dir
+    local base
+    dir=$(dirname "$file")
+    base=$(basename "$file")
+    
+    if ! temp_file=$(mktemp -p "$dir" "${base}.XXXXXXXX"); then
+        log_error "Failed to create temporary file for $file."
+        return 1
+    fi
 
     if [[ "$#" -ge 2 ]]; then
         echo "${2:-}" > "$temp_file"
@@ -115,6 +125,8 @@ atomic_write() {
 
 run_with_lock() {
     # Executes a command with an exclusive lock.
+    # Uses 'exec' for redirection to ensure environment variables set
+    # by the command (like when sourcing an agent env) propagate to the parent.
     #
     # Args:
     #   lock_file: (string) Path to the lock file.
@@ -127,10 +139,49 @@ run_with_lock() {
     validate_filepath_arg "$lock_file" "run_with_lock: No lock file provided." || return 1
     ensure_file_exists "$lock_file" || return 1
 
-    {
-        flock -x 200 || { log_error "Failed to acquire lock on $lock_file."; return 1; }
-        "$@"
-    } 200>"$lock_file"
+    # Open lock file on FD 200
+    exec 200>"$lock_file"
+    
+    # Acquire exclusive lock
+    if ! flock -x 200; then
+        log_error "Failed to acquire lock on $lock_file."
+        exec 200>&-
+        return 1
+    fi
+
+    # Execute command in the current shell context
+    "$@"
+    local ret=$?
+
+    # Release lock and close FD
+    flock -u 200
+    exec 200>&-
+
+    return "$ret"
+}
+
+parse_agent_env() {
+    # Parses the SSH agent environment file and sets local variables.
+    # Sets: __parsed_sock, __parsed_pid
+    #
+    # Args:
+    #   env_file: (string) Path to the environment file.
+    # Returns:
+    #   0 if successful, non-zero if file missing or malformed.
+    local env_file="$1"
+    
+    validate_filepath_arg "$env_file" "parse_agent_env: No environment file path provided." || return 1
+    
+    if [[ ! -f "$env_file" ]]; then
+        return 1
+    fi
+    
+    __parsed_sock=$(grep -oP 'SSH_AUTH_SOCK=\K[^ ]+' "$env_file" 2>/dev/null) || true
+    __parsed_pid=$(grep -oP 'SSH_AGENT_PID=\K[^ ]+' "$env_file" 2>/dev/null) || true
+    
+    if [[ -z "$__parsed_sock" ]] || [[ -z "$__parsed_pid" ]]; then
+        return 1
+    fi
     return 0
 }
 

@@ -1,21 +1,21 @@
-set -euo pipefail
+# shellcheck shell=bash
 
-if [[ -n "${VALIDATION_UTILS_LOADED:-}" ]]; then
+if [[ -n "${HANDSSHAKE_VALIDATION_UTILS_LOADED:-}" ]]; then
     return 0
 fi
-readonly VALIDATION_UTILS_LOADED=true
+HANDSSHAKE_VALIDATION_UTILS_LOADED=true
 
 # Source logging utilities for consistent error reporting
 source "$(dirname "${BASH_SOURCE[0]}")/logging_utils.sh"
 
 # Patterns for validation
-readonly PATTERN_BOOL='^(true|false)$'
-readonly PATTERN_INT='^-?[0-9]+$'
-readonly PATTERN_FLOAT='^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$'
-readonly PATTERN_IDENTIFIER='^[a-zA-Z_][a-zA-Z0-9_]*$'
+HANDSSHAKE_PATTERN_BOOL='^(true|false)$'
+HANDSSHAKE_PATTERN_INT='^-?[0-9]+$'
+HANDSSHAKE_PATTERN_FLOAT='^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$'
+HANDSSHAKE_PATTERN_IDENTIFIER='^[a-zA-Z_][a-zA-Z0-9_]*$'
 
-readonly INT64_MIN=-9223372036854775808
-readonly INT64_MAX=9223372036854775807
+HANDSSHAKE_INT64_MIN=-9223372036854775808
+HANDSSHAKE_INT64_MAX=9223372036854775807
 
 # Source shared constants
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/constants.sh"
@@ -42,13 +42,13 @@ trim_string() {
 }
 
 _log_validation_error() {
-    # Internal helper for logging validation errors if VERBOSE is true.
+    # Internal helper for logging validation errors if HANDSSHAKE_VERBOSE is true.
     #
     # Arguments:
     #   message: (string) The error message.
     #   input: (string) The original invalid input.
     
-    if [[ "${VERBOSE:-false}" == "true" ]]; then
+    if [[ "${HANDSSHAKE_VERBOSE:-false}" == "true" ]]; then
         log_error "$1: Input '$2'"
     fi
     return 0
@@ -71,8 +71,8 @@ _validate_pattern() {
     trimmed=$(trim_string "$1")
 
     if [[ -z "$trimmed" ]]; then
-        _log_validation_error "$MESSAGE_EMPTY_STRING" "$1"
-        return "$CODE_EMPTY_STRING"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_EMPTY_STRING" "$1"
+        return "$HANDSSHAKE_CODE_EMPTY_STRING"
     fi
 
     if [[ ! "$trimmed" =~ $2 ]]; then
@@ -102,8 +102,8 @@ validate_string() {
     trimmed=$(trim_string "$1")
 
     if [[ -z "$trimmed" ]]; then
-        _log_validation_error "$MESSAGE_EMPTY_STRING" "$1"
-        return "$CODE_EMPTY_STRING"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_EMPTY_STRING" "$1"
+        return "$HANDSSHAKE_CODE_EMPTY_STRING"
     fi
 
     echo "$trimmed"
@@ -138,7 +138,7 @@ validate_boolean() {
     local lower
     lower="${input,,}"
 
-    _validate_pattern "$lower" "$PATTERN_BOOL" "$CODE_INVALID_BOOLEAN" "$MESSAGE_INVALID_BOOLEAN"
+    _validate_pattern "$lower" "$HANDSSHAKE_PATTERN_BOOL" "$HANDSSHAKE_CODE_INVALID_BOOLEAN" "$HANDSSHAKE_MESSAGE_INVALID_BOOLEAN"
     return $?
 }
 
@@ -152,7 +152,7 @@ validate_signed_integer() {
     #   (string) The validated integer if valid.
     #   Exit code on failure.
 
-    _validate_pattern "$1" "$PATTERN_INT" "$CODE_INVALID_INTEGER" "$MESSAGE_INVALID_INTEGER"
+    _validate_pattern "$1" "$HANDSSHAKE_PATTERN_INT" "$HANDSSHAKE_CODE_INVALID_INTEGER" "$HANDSSHAKE_MESSAGE_INVALID_INTEGER"
     return $?
 }
 
@@ -166,7 +166,7 @@ validate_signed_float() {
     #   (string) The validated float if valid.
     #   Exit code on failure.
 
-    _validate_pattern "$1" "$PATTERN_FLOAT" "$CODE_INVALID_FLOAT" "$MESSAGE_INVALID_FLOAT"
+    _validate_pattern "$1" "$HANDSSHAKE_PATTERN_FLOAT" "$HANDSSHAKE_CODE_INVALID_FLOAT" "$HANDSSHAKE_MESSAGE_INVALID_FLOAT"
     return $?
 }
 
@@ -190,8 +190,8 @@ validate_negative_allowed () {
     is_negative_allowed=$(validate_boolean "${2:-true}") || return $?
 
     if [[ "$is_negative_allowed" == "false" && "$integer" -lt 0 ]]; then
-        _log_validation_error "$MESSAGE_NEGATIVE_NOT_ALLOWED" "$1"
-        return "$CODE_NEGATIVE_NOT_ALLOWED"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED" "$1"
+        return "$HANDSSHAKE_CODE_NEGATIVE_NOT_ALLOWED"
     fi
 
     return 0
@@ -216,9 +216,9 @@ validate_64bit_integer () {
 
     # Ensure that the check only runs if explicitly required
     if [[ "$is_64bit_check_required" == "true" ]]; then
-        if (( integer < INT64_MIN || integer > INT64_MAX )); then
-            _log_validation_error "$MESSAGE_EXCEEDS_64BIT" "$integer"
-            return "$CODE_EXCEEDS_64BIT"
+        if (( integer < HANDSSHAKE_INT64_MIN || integer > HANDSSHAKE_INT64_MAX )); then
+            _log_validation_error "$HANDSSHAKE_MESSAGE_EXCEEDS_64BIT" "$integer"
+            return "$HANDSSHAKE_CODE_EXCEEDS_64BIT"
         fi
     fi
 
@@ -255,12 +255,12 @@ validate_range () {
 
     # Check if the value is within the range
     if [[ -n "$min" && "$integer" -lt "$min" ]]; then
-        _log_validation_error "$MESSAGE_OUT_OF_RANGE: Value '$integer' is less than min '$min'" "$integer"
-        return "$CODE_OUT_OF_RANGE"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_OUT_OF_RANGE: Value '$integer' is less than min '$min'" "$integer"
+        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
     fi
     if [[ -n "$max" && "$integer" -gt "$max" ]]; then
-        _log_validation_error "$MESSAGE_OUT_OF_RANGE: Value '$integer' is greater than max '$max'" "$integer"
-        return "$CODE_OUT_OF_RANGE"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_OUT_OF_RANGE: Value '$integer' is greater than max '$max'" "$integer"
+        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
     fi
 
     return 0
@@ -320,12 +320,12 @@ validate_identifier() {
     #   Exit code on failure.
 
     local identifier
-    identifier=$(_validate_pattern "$1" "$PATTERN_IDENTIFIER" "$CODE_IDENTIFIER_INVALID" "$MESSAGE_IDENTIFIER_INVALID") || return $?
+    identifier=$(_validate_pattern "$1" "$HANDSSHAKE_PATTERN_IDENTIFIER" "$HANDSSHAKE_CODE_INVALID_IDENTIFIER" "$HANDSSHAKE_MESSAGE_INVALID_IDENTIFIER") || return $?
 
     # Check if the identifier is declared (as a variable or function)
     if ! (declare -p "$identifier" &>/dev/null || declare -F "$identifier" &>/dev/null); then
-        _log_validation_error "$MESSAGE_IDENTIFIER_UNDECLARED" "$identifier"
-        return "$CODE_IDENTIFIER_UNDECLARED"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_IDENTIFIER_UNDECLARED" "$identifier"
+        return "$HANDSSHAKE_CODE_IDENTIFIER_UNDECLARED"
     fi
 
     echo "$identifier"
@@ -358,13 +358,13 @@ validate_directory() {
     fi
 
     if [[ ! -d "$resolved" ]]; then
-        _log_validation_error "$MESSAGE_DIRECTORY_NOT_FOUND: Path '$dir'" "$dir"
-        return "$CODE_DIRECTORY_NOT_FOUND"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_FOUND: Path '$dir'" "$dir"
+        return "$HANDSSHAKE_CODE_DIRECTORY_NOT_FOUND"
     fi
 
     if [[ "$is_writable_required" == "true" && ! -w "$resolved" ]]; then
-        _log_validation_error "$MESSAGE_DIRECTORY_NOT_WRITABLE: Path '$dir'" "$dir"
-        return "$CODE_DIRECTORY_NOT_WRITABLE"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_WRITABLE: Path '$dir'" "$dir"
+        return "$HANDSSHAKE_CODE_DIRECTORY_NOT_WRITABLE"
     fi
 
     return 0
@@ -383,11 +383,17 @@ ensure_directory() {
 
     local dir="$1"
 
-    if ! validate_directory "$dir" "true" 2>/dev/null; then
-        if ! mkdir -p "$dir" 2>/dev/null || ! validate_directory "$dir" "true" 2>/dev/null; then
-            _log_validation_error "Failed to ensure directory: '$dir'" "$dir"
-            return "$CODE_FILE_PERMISSION"
+    # Check existence silently first to avoid noisy logs during initialization
+    if [[ ! -d "$dir" ]]; then
+        if ! mkdir -p "$dir" 2>/dev/null; then
+            _log_validation_error "Failed to create directory: '$dir'" "$dir"
+            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
         fi
+    fi
+
+    # Now validate it properly (writability, etc.)
+    if ! validate_directory "$dir" "true"; then
+        return $?
     fi
 
     return 0
@@ -411,19 +417,19 @@ validate_file() {
     permission=$(trim_string "${2:-r}") || return $?
 
     if [[ ! -e "$file" ]]; then
-        _log_validation_error "$MESSAGE_FILE_NOT_FOUND: Path '$file'" "$file"
-        return "$CODE_FILE_NOT_FOUND"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_NOT_FOUND: Path '$file'" "$file"
+        return "$HANDSSHAKE_CODE_FILE_NOT_FOUND"
     fi
 
     if [[ "$permission" != "r" && "$permission" != "w" && "$permission" != "x" ]]; then
-        _log_validation_error "$MESSAGE_FILE_PERMISSION: Invalid permission mode '$permission'. Expected 'r', 'w', or 'x'." "$permission"
-        return "$CODE_FILE_PERMISSION"
+        _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Invalid permission mode '$permission'. Expected 'r', 'w', or 'x'." "$permission"
+        return "$HANDSSHAKE_CODE_FILE_PERMISSION"
     fi
 
     case "$permission" in
-        r) [[ -r "$file" ]] || { _log_validation_error "$MESSAGE_FILE_PERMISSION: Read denied for '$file'" "$file"; return "$CODE_FILE_PERMISSION"; } ;;
-        w) [[ -w "$file" ]] || { _log_validation_error "$MESSAGE_FILE_PERMISSION: Write denied for '$file'" "$file"; return "$CODE_FILE_PERMISSION"; } ;;
-        x) [[ -x "$file" ]] || { _log_validation_error "$MESSAGE_FILE_PERMISSION: Execute denied for '$file'" "$file"; return "$CODE_FILE_PERMISSION"; } ;;
+        r) [[ -r "$file" ]] || { _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Read denied for '$file'" "$file"; return "$HANDSSHAKE_CODE_FILE_PERMISSION"; } ;;
+        w) [[ -w "$file" ]] || { _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Write denied for '$file'" "$file"; return "$HANDSSHAKE_CODE_FILE_PERMISSION"; } ;;
+        x) [[ -x "$file" ]] || { _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Execute denied for '$file'" "$file"; return "$HANDSSHAKE_CODE_FILE_PERMISSION"; } ;;
     esac
 
     return 0

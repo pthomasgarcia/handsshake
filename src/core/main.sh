@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-########################################
-# Configuration and Global Variables
-########################################
-
-# Determine the directory where the script is located.
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck shell=bash
+if [[ -z "${HANDSSHAKE_LOADED:-}" ]]; then
+    HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    HANDSSHAKE_LOADED=true
+fi
 
 # Source lib and util modules
-source "$SCRIPT_DIR/../lib/config.sh"
-source "$SCRIPT_DIR/../util/file_utils.sh"
-source "$SCRIPT_DIR/../util/logging_utils.sh"
-source "$SCRIPT_DIR/../util/validation_utils.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../lib/config.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../util/file_utils.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../util/logging_utils.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../util/validation_utils.sh"
 
 # Load Configuration (XDG-aware)
 load_config
 
 # Source Services
-source "$SCRIPT_DIR/../services/agent_service.sh"
-source "$SCRIPT_DIR/../services/key_service.sh"
-source "$SCRIPT_DIR/../services/health_service.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../services/agent_service.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../services/key_service.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
 
 ########################################
 # Environment & Dependency Validation
@@ -35,7 +32,7 @@ validate_dependency() {
 }
 
 validate_environment() {
-    local dependencies=(ssh-agent ssh-add awk pgrep kill flock)
+    local dependencies=(ssh-agent ssh-add awk pgrep kill flock realpath)
     for dep in "${dependencies[@]}"; do
         validate_dependency "$dep"
     done
@@ -64,7 +61,7 @@ Arguments:
   key_file    Path to the SSH key file.
   seconds     New timeout in seconds (positive integer, max 86400).
 EOF
-    exit 1
+    return 1
 }
 
 dispatch() {
@@ -74,6 +71,7 @@ dispatch() {
 
     if [[ "$#" -eq 0 ]]; then
         usage
+        return $?
     fi
 
     # Argument Parsing
@@ -85,6 +83,7 @@ dispatch() {
                 ;;
             -h|--help)
                 usage
+                return $?
                 ;;
             *)
                 if [[ -z "$key_file" ]] && [[ -z "$new_timeout" ]]; then
@@ -95,10 +94,12 @@ dispatch() {
                     else
                         echo "Error: Unexpected argument '$1'." >&2
                         usage
+                        return $?
                     fi
                 else
                     echo "Error: Too many arguments for command '$command'." >&2
                     usage
+                    return $?
                 fi
                 shift
                 ;;
@@ -108,23 +109,25 @@ dispatch() {
     if [[ -z "$command" ]]; then
         echo "Error: No command specified." >&2
         usage
+        return $?
     fi
 
     # Command Execution
     case "$command" in
         add)
             # key_file is optional, defaults handled in add_key
-            run_with_lock "$LOCK_FILE" add_key "$key_file"
+            run_with_lock "$HANDSSHAKE_LOCK_FILE" add_key "$key_file"
             ;;
         remove)
             if [[ -z "$key_file" ]]; then
                 echo "Error: Missing key_file for 'remove' command." >&2
                 usage
+                return $?
             fi
-            run_with_lock "$LOCK_FILE" remove_key "$key_file"
+            run_with_lock "$HANDSSHAKE_LOCK_FILE" remove_key "$key_file"
             ;;
         remove-all)
-            run_with_lock "$LOCK_FILE" remove_all_keys
+            run_with_lock "$HANDSSHAKE_LOCK_FILE" remove_all_keys
             ;;
         list)
             ensure_agent # ensure agent is running/loaded before listing
@@ -134,11 +137,12 @@ dispatch() {
             if [[ -z "$new_timeout" ]]; then
                 echo "Error: Missing timeout in seconds for 'timeout' command." >&2
                 usage
+                return $?
             fi
-            run_with_lock "$LOCK_FILE" update_key_timeout "$new_timeout"
+            run_with_lock "$HANDSSHAKE_LOCK_FILE" update_key_timeout "$new_timeout"
             ;;
         cleanup)
-            run_with_lock "$LOCK_FILE" cleanup_agent
+            run_with_lock "$HANDSSHAKE_LOCK_FILE" cleanup_agent
             ;;
         health)
             check_health
@@ -146,6 +150,7 @@ dispatch() {
         *)
             echo "Error: Unknown command '$command'." >&2
             usage
+            return $?
             ;;
     esac
     return 0
@@ -165,9 +170,31 @@ main() {
     # We'll allow 'health' and 'cleanup' to run without forced ensure_agent if possible,
     # but ensure_agent is idempotent and fast if already running.
     
-    run_with_lock "$LOCK_FILE" ensure_agent
-
-    dispatch "$@"
+    run_with_lock "$HANDSSHAKE_LOCK_FILE" ensure_agent
+    
+    # Check if script is being sourced (setup aliases) or executed (dispatch command)
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        # Script is being executed directly
+        if [[ "$1" == "health" ]] || [[ "$1" == "list" ]] || [[ "$1" == "cleanup" ]]; then
+             # Allow informational/cleanup commands even if not sourced, 
+             # but warn that env changes won't persist.
+             echo -e "\033[1;33mNote:\033[0m handsshake is running as a sub-process. Environment variables will not persist in your shell." >&2
+        else
+             echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED to modify your shell environment." >&2
+             echo "Usage: source $(basename "$0") <command>" >&2
+             echo "Or ensure your alias is: alias handsshake='source $(realpath "$0")'" >&2
+        fi
+        dispatch "$@"
+    else
+        # Script is sourced
+        # If arguments provided, run dispatch immediately
+        if [[ "$#" -gt 0 ]]; then
+            dispatch "$@"
+        else
+            # If sourced with no args (e.g. in .bashrc), just ensure agent and return
+            :
+        fi
+    fi
     return 0
 }
 

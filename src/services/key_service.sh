@@ -1,5 +1,4 @@
 # shellcheck shell=bash
-set -euo pipefail
 
 # Source dependencies
 source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
@@ -7,28 +6,29 @@ source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../util/validation_utils.sh"
 
 record_key() {
-    local key_file="$1"
-    if [[ -f "$RECORD_FILE" ]] && grep -Fxq "$key_file" "$RECORD_FILE"; then
+    local key_file
+    key_file=$(realpath "$1" 2>/dev/null || echo "$1")
+    if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] && grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
         return 0
     fi
     # Direct append, relying on higher-level lock
-    echo "$key_file" >> "$RECORD_FILE"
+    echo "$key_file" >> "$HANDSSHAKE_RECORD_FILE"
     return 0
 }
 
 remove_key_record() {
     local key_file="$1"
-    if [[ -f "$RECORD_FILE" ]]; then
+    if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         local tmp_content
-        tmp_content=$(grep -Fxv "$key_file" "$RECORD_FILE" || true)
-        atomic_write "$RECORD_FILE" "$tmp_content"
+        tmp_content=$(grep -Fxv "$key_file" "$HANDSSHAKE_RECORD_FILE" || true)
+        atomic_write "$HANDSSHAKE_RECORD_FILE" "$tmp_content"
     fi
     return 0
 }
 
 clear_records() {
-    if [[ -f "$RECORD_FILE" ]]; then
-        rm -f "$RECORD_FILE"
+    if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
+        rm -f "$HANDSSHAKE_RECORD_FILE"
     fi
     return 0
 }
@@ -46,9 +46,9 @@ add_key() {
     fi
 
     echo "Adding key '$key_file'..."
-    if ssh-add -t "$DEFAULT_KEY_TIMEOUT" "$key_file"; then
-        log_info "Added key '$key_file' with timeout ${DEFAULT_KEY_TIMEOUT}s."
-        echo "Key '$key_file' added with timeout ${DEFAULT_KEY_TIMEOUT}s."
+    if ssh-add -t "$HANDSSHAKE_DEFAULT_TIMEOUT" "$key_file"; then
+        log_info "Added key '$key_file' with timeout ${HANDSSHAKE_DEFAULT_TIMEOUT}s."
+        echo "Key '$key_file' added with timeout ${HANDSSHAKE_DEFAULT_TIMEOUT}s."
         record_key "$key_file"
         return 0
     else
@@ -98,16 +98,22 @@ remove_all_keys() {
 }
 
 list_keys() {
-    echo "Current SSH agent keys:"
-    if ssh-add -l 2>/dev/null; then
+    local ssh_add_out
+    ssh_add_out=$(ssh-add -l 2>&1)
+    local ssh_add_exit=$?
+
+    if [[ "$ssh_add_exit" -eq 0 ]]; then
+        echo "Current SSH agent keys:"
+        echo "$ssh_add_out"
+        return 0
+    elif [[ "$ssh_add_exit" -eq 1 ]]; then
+        echo "Current SSH agent keys:"
+        echo "The agent has no identities."
         return 0
     else
-        # We assume listing is called when agent should be running.
-        # However, if ssh-add fails, it might be no keys or no agent.
-        # Checking exit code 1 (no keys) vs 2 (no agent) is standard but varies.
-        # For simplicity, we print "No keys loaded" if valid agent but empty.
-        echo "No keys loaded."
-        return 0
+        echo "Error: Could not connect to SSH agent." >&2
+        echo "$ssh_add_out" >&2
+        return 1
     fi
 }
 
@@ -119,7 +125,7 @@ update_key_timeout() {
         return 1
     fi
 
-    if [[ ! -f "$RECORD_FILE" ]]; then
+    if [[ ! -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         echo "No keys recorded to update." >&2
         return 1
     fi
@@ -139,7 +145,7 @@ update_key_timeout() {
                 echo "Failed to update timeout for '$key_file'." >&2
             fi
         fi
-    done < "$RECORD_FILE"
+    done < "$HANDSSHAKE_RECORD_FILE"
 
     if [[ "$updated" -eq 0 ]]; then
         return 1

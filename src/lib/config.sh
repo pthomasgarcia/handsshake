@@ -1,6 +1,10 @@
 # shellcheck shell=bash
-set -euo pipefail
 
+
+if [[ -n "${HANDSSHAKE_CONFIG_LOADED:-}" ]]; then
+    return 0
+fi
+HANDSSHAKE_CONFIG_LOADED=true
 
 load_config() {
     # Loads the SSH agent configuration from a given file and sets default values.
@@ -10,11 +14,21 @@ load_config() {
     #   $1 (string) - Path to the configuration file (Optional)
     # Returns:
     #   0 if the socket exists and is a socket.
-    #   CODE_INVALID_SOCKET if the socket does not exist or is not a socket.
+    #   Non-zero if directory creation fails.
 
     # XDG Defaults
     local xdg_config_home="${XDG_CONFIG_HOME:-$HOME/.config}/handsshake"
     local xdg_state_home="${XDG_STATE_HOME:-$HOME/.local/state}/handsshake"
+    
+    # 2. Set Defaults (XDG-aware)
+    HANDSSHAKE_DEFAULT_TIMEOUT="${HANDSSHAKE_DEFAULT_TIMEOUT:-86400}"
+    HANDSSHAKE_VERBOSE="${HANDSSHAKE_VERBOSE:-true}"
+    
+    # these are state files, should be in XDG_STATE_HOME
+    HANDSSHAKE_LOG_FILE="${HANDSSHAKE_LOG_FILE:-$xdg_state_home/logs/handsshake.log}"
+    HANDSSHAKE_AGENT_ENV_FILE="${HANDSSHAKE_AGENT_ENV_FILE:-$xdg_state_home/ssh-agent.env}"
+    HANDSSHAKE_RECORD_FILE="${HANDSSHAKE_RECORD_FILE:-$xdg_state_home/added_keys.list}"
+    HANDSSHAKE_LOCK_FILE="${HANDSSHAKE_LOCK_FILE:-$xdg_state_home/handsshake.lock}"
     
     # 1. Determine Config File
     local config_file="${1:-$xdg_config_home/settings.conf}"
@@ -28,31 +42,37 @@ load_config() {
          fi
     fi
 
-    # 2. Set Defaults (XDG-aware)
-    DEFAULT_KEY_TIMEOUT="${DEFAULT_KEY_TIMEOUT:-86400}"
-    VERBOSE="${VERBOSE:-true}"
-    
-    # these are state files, should be in XDG_STATE_HOME
-    LOG_FILE="${LOG_FILE:-$xdg_state_home/logs/handsshake.log}"
-    AGENT_ENV_FILE="${AGENT_ENV_FILE:-$xdg_state_home/ssh-agent.env}"
-    RECORD_FILE="${RECORD_FILE:-$xdg_state_home/added_keys.list}"
-    LOCK_FILE="${LOCK_FILE:-$xdg_state_home/handsshake.lock}"
-
-    # Validate DEFAULT_KEY_TIMEOUT
-    if ! [[ "$DEFAULT_KEY_TIMEOUT" =~ ^[0-9]+$ ]]; then
-        echo "Error: DEFAULT_KEY_TIMEOUT is not a valid number. Using default (86400)." >&2
-        DEFAULT_KEY_TIMEOUT=86400
+    # Validate HANDSSHAKE_DEFAULT_TIMEOUT
+    if ! [[ "$HANDSSHAKE_DEFAULT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+        echo "Error: HANDSSHAKE_DEFAULT_TIMEOUT is not a valid number. Using default (86400)." >&2
+        HANDSSHAKE_DEFAULT_TIMEOUT=86400
     fi
 
     # 3. Ensure Directories Exist
-    ensure_directory "$(dirname "$LOG_FILE")" || return $?
-    ensure_directory "$(dirname "$AGENT_ENV_FILE")" || return $?
-    
-    # Secure the log file
-    if [[ ! -f "$LOG_FILE" ]]; then
-        touch "$LOG_FILE"
+    ensure_directory "$(dirname "$HANDSSHAKE_LOG_FILE")" || return $?
+    ensure_directory "$(dirname "$HANDSSHAKE_AGENT_ENV_FILE")" || return $?
+    ensure_directory "$(dirname "$HANDSSHAKE_RECORD_FILE")" || return $?
+    ensure_directory "$(dirname "$HANDSSHAKE_LOCK_FILE")" || return $?
+    if [[ ! -f "$HANDSSHAKE_LOG_FILE" ]]; then
+        touch "$HANDSSHAKE_LOG_FILE"
     fi
-    secure_file "$LOG_FILE"
+    secure_file "$HANDSSHAKE_LOG_FILE"
+    
+    # Secure other state files
+    if [[ ! -f "$HANDSSHAKE_AGENT_ENV_FILE" ]]; then
+        touch "$HANDSSHAKE_AGENT_ENV_FILE"
+    fi
+    secure_file "$HANDSSHAKE_AGENT_ENV_FILE"
+    
+    if [[ ! -f "$HANDSSHAKE_RECORD_FILE" ]]; then
+        touch "$HANDSSHAKE_RECORD_FILE"
+    fi
+    secure_file "$HANDSSHAKE_RECORD_FILE"
+    
+    if [[ ! -f "$HANDSSHAKE_LOCK_FILE" ]]; then
+        touch "$HANDSSHAKE_LOCK_FILE"
+    fi
+    secure_file "$HANDSSHAKE_LOCK_FILE"
 
     return 0
 }

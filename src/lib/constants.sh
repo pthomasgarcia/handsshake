@@ -1,34 +1,34 @@
-set -euo pipefail
+# shellcheck shell=bash
 
-if [ -n "${CONSTANTS_LOADED:-}" ]; then
+if [[ -n "${HANDSSHAKE_CONSTANTS_LOADED:-}" ]]; then
     return 0
 fi
-readonly CONSTANTS_LOADED=true
+HANDSSHAKE_CONSTANTS_LOADED=true
 
-readonly CODE_SUCCESS=0
-readonly CODE_EMPTY_STRING=1
-readonly CODE_INVALID_BOOLEAN=2
-readonly CODE_INVALID_INTEGER=3
-readonly CODE_INVALID_FLOAT=4
-readonly CODE_NEGATIVE_NOT_ALLOWED=5
-readonly CODE_OUT_OF_RANGE=6
-readonly CODE_INVALID_IDENTIFIER=7
-readonly CODE_DIRECTORY_NOT_FOUND=10
-readonly CODE_DIRECTORY_NOT_WRITABLE=11
-readonly CODE_FILE_NOT_FOUND=12
-readonly CODE_FILE_PERMISSION=13
-readonly CODE_INVALID_SOCKET=20
-readonly CODE_INVALID_ENV=21
-readonly CODE_PROCESS_NOT_RUNNING=22
+HANDSSHAKE_CODE_SUCCESS=0
+HANDSSHAKE_CODE_EMPTY_STRING=1
+HANDSSHAKE_CODE_INVALID_BOOLEAN=2
+HANDSSHAKE_CODE_INVALID_INTEGER=3
+HANDSSHAKE_CODE_INVALID_FLOAT=4
+HANDSSHAKE_CODE_NEGATIVE_NOT_ALLOWED=5
+HANDSSHAKE_CODE_OUT_OF_RANGE=6
+HANDSSHAKE_CODE_INVALID_IDENTIFIER=7
+HANDSSHAKE_CODE_DIRECTORY_NOT_FOUND=10
+HANDSSHAKE_CODE_DIRECTORY_NOT_WRITABLE=11
+HANDSSHAKE_CODE_FILE_NOT_FOUND=12
+HANDSSHAKE_CODE_FILE_PERMISSION=13
+HANDSSHAKE_CODE_INVALID_SOCKET=20
+HANDSSHAKE_CODE_INVALID_ENV=21
+HANDSSHAKE_CODE_PROCESS_NOT_RUNNING=22
 
-readonly MESSAGE_EMPTY_STRING="Error: Input string cannot be empty."
-readonly MESSAGE_INVALID_BOOLEAN="Error: Invalid boolean value."
-readonly MESSAGE_INVALID_INTEGER="Error: Invalid integer value."
-readonly MESSAGE_INVALID_FLOAT="Error: Invalid float value."
-readonly MESSAGE_NEGATIVE_NOT_ALLOWED="Error: Negative numbers are not allowed."
-readonly MESSAGE_OUT_OF_RANGE="Error: Value out of range."
-readonly MESSAGE_INVALID_IDENTIFIER="Error: Invalid identifier format."
-readonly MESSAGE_DIRECTORY_NOT_FOUND="Error: Directory does not exist."
-readonly MESSAGE_DIRECTORY_NOT_WRITABLE="Error: Directory is not writable."
-readonly MESSAGE_FILE_NOT_FOUND="Error: File does not exist."
-readonly MESSAGE_FILE_PERMISSION="Error: File does not have the required permission (read/write/execute)"
+HANDSSHAKE_MESSAGE_EMPTY_STRING="Error: Input string cannot be empty."
+HANDSSHAKE_MESSAGE_INVALID_BOOLEAN="Error: Invalid boolean value."
+HANDSSHAKE_MESSAGE_INVALID_INTEGER="Error: Invalid integer value."
+HANDSSHAKE_MESSAGE_INVALID_FLOAT="Error: Invalid float value."
+HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED="Error: Negative numbers are not allowed."
+HANDSSHAKE_MESSAGE_OUT_OF_RANGE="Error: Value out of range."
+HANDSSHAKE_MESSAGE_INVALID_IDENTIFIER="Error: Invalid identifier format."
+HANDSSHAKE_MESSAGE_DIRECTORY_NOT_FOUND="Error: Directory does not exist."
+HANDSSHAKE_MESSAGE_DIRECTORY_NOT_WRITABLE="Error: Directory is not writable."
+HANDSSHAKE_MESSAGE_FILE_NOT_FOUND="Error: File does not exist."
+HANDSSHAKE_MESSAGE_FILE_PERMISSION="Error: File does not have the required permission (read/write/execute)"

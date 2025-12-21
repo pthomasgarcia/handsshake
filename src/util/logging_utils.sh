@@ -1,9 +1,9 @@
-set -euo pipefail
+# shellcheck shell=bash
 
-if [[ -n "${LOGGING_UTILS_LOADED:-}" ]]; then
+if [[ -n "${HANDSSHAKE_LOGGING_UTILS_LOADED:-}" ]]; then
     return 0
 fi
-readonly LOGGING_UTILS_LOADED=true
+HANDSSHAKE_LOGGING_UTILS_LOADED=true
 
 log_message() {
     # Logs a message to the console and a log file.
@@ -24,10 +24,13 @@ log_message() {
     timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     formatted_message="[$timestamp] [$level] $message"
     
-    if [[ "${VERBOSE:-false}" == "true" ]]; then
+    if [[ "${HANDSSHAKE_VERBOSE:-false}" == "true" ]]; then
         echo "$formatted_message"
     fi
-    echo "$formatted_message" >> "$LOG_FILE"
+    
+    if [[ -n "${HANDSSHAKE_LOG_FILE:-}" ]]; then
+        echo "$formatted_message" >> "$HANDSSHAKE_LOG_FILE"
+    fi
 
     if [[ "$to_stderr" == "true" ]]; then
         echo "$formatted_message" >&2
@@ -87,6 +90,21 @@ error_exit_with_log() {
     local exit_code="${2:-1}"
 
     log_error "$message"
-    exit "$exit_code"
+    # Use return instead of exit to avoid killing the shell when sourced
+    return "$exit_code"
+}
+
+error_exit() {
+    # Public wrapper for error_exit_with_log.
+    # Logs an error message and returns with a non-zero status.
+    # Note: Uses return instead of exit to avoid terminating the shell when sourced.
+    # Callers should check the return value and handle termination as needed.
+    #
+    # Args:
+    #   message: (string) The error message to log and display.
+    #   exit_code: (int, optional) The return code. Defaults to 1.
+    # Returns:
+    #   The specified exit_code (or 1 by default).
+    error_exit_with_log "$@"
 }
 
