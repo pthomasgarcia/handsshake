@@ -10,8 +10,10 @@ log_message() {
     #
     # Args:
     #   message: (string) The message to log.
-    #   level: (string, optional) The log level (e.g., INFO, ERROR). Defaults to INFO.
-    #   to_stderr: (boolean, optional) If true, also prints to stderr. Defaults to false.
+    #   level: (string, optional) The log level (e.g., INFO, ERROR).
+    #          Defaults to INFO.
+    #   to_stderr: (boolean, optional) If true, also prints to stderr.
+    #              Defaults to false.
     # Returns:
     #   None
 
@@ -23,11 +25,11 @@ log_message() {
 
     timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     formatted_message="[$timestamp] [$level] $message"
-    
+
     if [[ "${HANDSSHAKE_VERBOSE:-false}" == "true" ]]; then
         echo "$formatted_message"
     fi
-    
+
     if [[ -n "${HANDSSHAKE_LOG_FILE:-}" ]]; then
         echo "$formatted_message" >> "$HANDSSHAKE_LOG_FILE"
     fi
@@ -43,7 +45,8 @@ check_file_exists() {
     #
     # Args:
     #   file_path: (string) The path to the file to check.
-    #   error_message: (string, optional) Custom error message if file is missing.
+    #   error_message: (string, optional) Custom error message
+    #                  if file is missing.
     # Returns:
     #   0 if file exists, 1 otherwise.
     local file_path="$1"
@@ -85,7 +88,7 @@ error_exit_with_log() {
     # Args:
     #   message: (string) The error message to log and display before exiting.
     #   exit_code: (int, optional) The exit code. Defaults to 1.
-    
+
     local message="$1"
     local exit_code="${2:-1}"
 
@@ -97,7 +100,8 @@ error_exit_with_log() {
 error_exit() {
     # Public wrapper for error_exit_with_log.
     # Logs an error message and returns with a non-zero status.
-    # Note: Uses return instead of exit to avoid terminating the shell when sourced.
+    # Note: Uses return instead of exit to avoid terminating the shell
+    # when sourced.
     # Callers should check the return value and handle termination as needed.
     #
     # Args:
@@ -107,4 +111,3 @@ error_exit() {
     #   The specified exit_code (or 1 by default).
     error_exit_with_log "$@"
 }
-

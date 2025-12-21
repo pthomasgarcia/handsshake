@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034
 
 if [[ -n "${HANDSSHAKE_CONSTANTS_LOADED:-}" ]]; then
     return 0
@@ -25,10 +26,12 @@ HANDSSHAKE_MESSAGE_EMPTY_STRING="Error: Input string cannot be empty."
 HANDSSHAKE_MESSAGE_INVALID_BOOLEAN="Error: Invalid boolean value."
 HANDSSHAKE_MESSAGE_INVALID_INTEGER="Error: Invalid integer value."
 HANDSSHAKE_MESSAGE_INVALID_FLOAT="Error: Invalid float value."
-HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED="Error: Negative numbers are not allowed."
+HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED="Error: Negative numbers are not \
+allowed."
 HANDSSHAKE_MESSAGE_OUT_OF_RANGE="Error: Value out of range."
 HANDSSHAKE_MESSAGE_INVALID_IDENTIFIER="Error: Invalid identifier format."
 HANDSSHAKE_MESSAGE_DIRECTORY_NOT_FOUND="Error: Directory does not exist."
 HANDSSHAKE_MESSAGE_DIRECTORY_NOT_WRITABLE="Error: Directory is not writable."
 HANDSSHAKE_MESSAGE_FILE_NOT_FOUND="Error: File does not exist."
-HANDSSHAKE_MESSAGE_FILE_PERMISSION="Error: File does not have the required permission (read/write/execute)"
+HANDSSHAKE_MESSAGE_FILE_PERMISSION="Error: File does not have the required \
+permission (read/write/execute)"

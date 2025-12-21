@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
+
+set -euo pipefail
+
 # shellcheck shell=bash
 if [[ -z "${HANDSSHAKE_LOADED:-}" ]]; then
     HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     HANDSSHAKE_LOADED=true
 fi
 
-# Source lib and util modules
-source "$HANDSSHAKE_SCRIPT_DIR/../lib/config.sh"
-source "$HANDSSHAKE_SCRIPT_DIR/../util/file_utils.sh"
+# Source core utilities (Bootstrapping)
+# shellcheck source=/dev/null
 source "$HANDSSHAKE_SCRIPT_DIR/../util/logging_utils.sh"
-source "$HANDSSHAKE_SCRIPT_DIR/../util/validation_utils.sh"
+# shellcheck source=/dev/null
+source "$HANDSSHAKE_SCRIPT_DIR/../util/file_utils.sh"
+
+# Use assert_source for the remaining modules
+assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/config.sh"
+assert_source "$HANDSSHAKE_SCRIPT_DIR/../util/validation_utils.sh"
 
 # Load Configuration (XDG-aware)
 load_config
 
 # Source Services
-source "$HANDSSHAKE_SCRIPT_DIR/../services/agent_service.sh"
-source "$HANDSSHAKE_SCRIPT_DIR/../services/key_service.sh"
-source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
+assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/agent_service.sh"
+assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/key_service.sh"
+assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
 
 ########################################
 # Environment & Dependency Validation
@@ -25,7 +32,7 @@ source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
 
 validate_dependency() {
     local cmd="$1"
-    if ! command -v "$cmd" >/dev/null 2>&1; then
+    if ! command -v "$cmd" > /dev/null 2>&1; then
         error_exit "Required command '$cmd' not found."
     fi
     return 0
@@ -44,7 +51,7 @@ validate_environment() {
 ########################################
 
 usage() {
-    cat <<EOF
+    cat << EOF
 Usage: $(basename "$0") <command> [arguments]
 
 Commands:
@@ -77,17 +84,18 @@ dispatch() {
     # Argument Parsing
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
-            add|remove|remove-all|list|timeout|cleanup|health)
+            add | remove | remove-all | list | timeout | cleanup | health)
                 command="$1"
                 shift
                 ;;
-            -h|--help)
+            -h | --help)
                 usage
                 return $?
                 ;;
             *)
                 if [[ -z "$key_file" ]] && [[ -z "$new_timeout" ]]; then
-                    if [[ "$command" == "add" ]] || [[ "$command" == "remove" ]]; then
+                    if [[ "$command" == "add" ]] || \
+                        [[ "$command" == "remove" ]]; then
                         key_file="$1"
                     elif [[ "$command" == "timeout" ]]; then
                         new_timeout="$1"
@@ -116,7 +124,7 @@ dispatch() {
     case "$command" in
         add)
             # key_file is optional, defaults handled in add_key
-            run_with_lock "$HANDSSHAKE_LOCK_FILE" add_key "$key_file"
+            add_key "$key_file"
             ;;
         remove)
             if [[ -z "$key_file" ]]; then
@@ -124,25 +132,27 @@ dispatch() {
                 usage
                 return $?
             fi
-            run_with_lock "$HANDSSHAKE_LOCK_FILE" remove_key "$key_file"
+            remove_key "$key_file"
             ;;
         remove-all)
-            run_with_lock "$HANDSSHAKE_LOCK_FILE" remove_all_keys
+            remove_all_keys
             ;;
         list)
-            ensure_agent # ensure agent is running/loaded before listing
+            # ensure_agent is already called by the unified lock in main
             list_keys
             ;;
         timeout)
             if [[ -z "$new_timeout" ]]; then
-                echo "Error: Missing timeout in seconds for 'timeout' command." >&2
+                echo \
+                    "Error: Missing timeout in seconds for 'timeout' command." \
+                    >&2
                 usage
                 return $?
             fi
-            run_with_lock "$HANDSSHAKE_LOCK_FILE" update_key_timeout "$new_timeout"
+            update_key_timeout "$new_timeout"
             ;;
         cleanup)
-            run_with_lock "$HANDSSHAKE_LOCK_FILE" cleanup_agent
+            cleanup_agent
             ;;
         health)
             check_health
@@ -162,27 +172,26 @@ dispatch() {
 
 main() {
     validate_environment
-    
+
     # Ensure agent is running/env is loaded for all commands that might need it.
-    # We use a lock to prevent race conditions during startup.
-    # Note: 'cleanup' might not strictly need it, but consistent env matches are good.
-    # 'health' is read-only validation.
-    # We'll allow 'health' and 'cleanup' to run without forced ensure_agent if possible,
-    # but ensure_agent is idempotent and fast if already running.
-    
-    run_with_lock "$HANDSSHAKE_LOCK_FILE" ensure_agent
-    
-    # Check if script is being sourced (setup aliases) or executed (dispatch command)
+    ensure_agent
+
+    # Check if script is being sourced (setup aliases) or
+    # executed (dispatch command)
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         # Script is being executed directly
-        if [[ "$1" == "health" ]] || [[ "$1" == "list" ]] || [[ "$1" == "cleanup" ]]; then
-             # Allow informational/cleanup commands even if not sourced, 
-             # but warn that env changes won't persist.
-             echo -e "\033[1;33mNote:\033[0m handsshake is running as a sub-process. Environment variables will not persist in your shell." >&2
+        if [[ "$1" == "health" ]] || [[ "$1" == "list" ]] || \
+            [[ "$1" == "cleanup" ]]; then
+            # Allow informational/cleanup commands even if not sourced,
+            # but warn that env changes won't persist.
+            echo -e "\033[1;33mNote:\033[0m handsshake is running as a \
+sub-process. Environment variables will not persist in your shell." >&2
         else
-             echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED to modify your shell environment." >&2
-             echo "Usage: source $(basename "$0") <command>" >&2
-             echo "Or ensure your alias is: alias handsshake='source $(realpath "$0")'" >&2
+            echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED to \
+modify your shell environment." >&2
+            echo "Usage: source $(basename "$0") <command>" >&2
+            echo "Or ensure your alias is: \
+alias handsshake='source $(realpath "$0")'" >&2
         fi
         dispatch "$@"
     else
@@ -191,11 +200,14 @@ main() {
         if [[ "$#" -gt 0 ]]; then
             dispatch "$@"
         else
-            # If sourced with no args (e.g. in .bashrc), just ensure agent and return
+            # If sourced with no args (e.g. in .bashrc),
+            # just ensure agent and return
             :
         fi
     fi
-    return 0
+    return $?
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
+fi

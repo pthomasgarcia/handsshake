@@ -6,9 +6,37 @@ fi
 HANDSSHAKE_FILE_UTILS_LOADED=true
 
 # Source logging utilities
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/logging_utils.sh"
 
 # Helper Functions for File Operations
+
+assert_source() {
+    # Sources a file strictly, ensuring it is readable and non-empty.
+    # Note: Depends on error_exit from logging_utils.sh.
+    #
+    # Args:
+    #   file: (string) Path to the file to source.
+    local file="$1"
+
+    # 1. Check if file exists and is a regular file
+    if [[ ! -f "$file" ]]; then
+        error_exit "Source failed: '$file' does not exist or is not a file."
+    fi
+
+    # 2. Check if file is readable
+    if [[ ! -r "$file" ]]; then
+        error_exit "Source failed: '$file' is not readable (check permissions)."
+    fi
+
+    # 3. Check if file is non-empty (Size > 0)
+    if [[ ! -s "$file" ]]; then
+        error_exit "Source failed: '$file' is empty."
+    fi
+
+    # shellcheck source=/dev/null
+    source "$file" || error_exit "Source failed: Error while executing '$file'."
+}
 
 validate_filepath_arg() {
     # Validates that a file path argument is provided and not empty.
@@ -70,7 +98,8 @@ secure_file() {
 
     local file="$1"
 
-    validate_filepath_arg "$file" "secure_file: No file path provided." || return 1
+    validate_filepath_arg "$file" \
+        "secure_file: No file path provided." || return 1
     ensure_file_exists "$file" || return 1
     set_file_permissions "$file" || return 1
 
@@ -82,14 +111,16 @@ atomic_write() {
     #
     # Args:
     #   file: (string) Path to the destination file.
-    #   content: (string, optional) Content to write. If not provided, reads from stdin.
+    #   content: (string, optional) Content to write. If not provided,
+    #            reads from stdin.
     # Returns:
     #   0 if successful, non-zero on failure.
 
     local file="$1"
     local temp_file
 
-    validate_filepath_arg "$file" "atomic_write: No file path provided." || return 1
+    validate_filepath_arg "$file" \
+        "atomic_write: No file path provided." || return 1
 
     # Use mktemp to create a unique temporary file in the target directory
     # This ensures the atomic 'mv' works successfully (same filesystem).
@@ -97,7 +128,7 @@ atomic_write() {
     local base
     dir=$(dirname "$file")
     base=$(basename "$file")
-    
+
     if ! temp_file=$(mktemp -p "$dir" "${base}.XXXXXXXX"); then
         log_error "Failed to create temporary file for $file."
         return 1
@@ -136,12 +167,13 @@ run_with_lock() {
     local lock_file="$1"
     shift
 
-    validate_filepath_arg "$lock_file" "run_with_lock: No lock file provided." || return 1
+    validate_filepath_arg "$lock_file" \
+        "run_with_lock: No lock file provided." || return 1
     ensure_file_exists "$lock_file" || return 1
 
     # Open lock file on FD 200
-    exec 200>"$lock_file"
-    
+    exec 200> "$lock_file"
+
     # Acquire exclusive lock
     if ! flock -x 200; then
         log_error "Failed to acquire lock on $lock_file."
@@ -169,20 +201,19 @@ parse_agent_env() {
     # Returns:
     #   0 if successful, non-zero if file missing or malformed.
     local env_file="$1"
-    
-    validate_filepath_arg "$env_file" "parse_agent_env: No environment file path provided." || return 1
-    
+
+    validate_filepath_arg "$env_file" \
+        "parse_agent_env: No environment file path provided." || return 1
+
     if [[ ! -f "$env_file" ]]; then
         return 1
     fi
-    
-    __parsed_sock=$(grep -oP 'SSH_AUTH_SOCK=\K[^ ]+' "$env_file" 2>/dev/null) || true
-    __parsed_pid=$(grep -oP 'SSH_AGENT_PID=\K[^ ]+' "$env_file" 2>/dev/null) || true
-    
+
+    __parsed_sock=$(sed -n 's/^SSH_AUTH_SOCK=//p' "$env_file")
+    __parsed_pid=$(sed -n 's/^SSH_AGENT_PID=//p' "$env_file")
+
     if [[ -z "$__parsed_sock" ]] || [[ -z "$__parsed_pid" ]]; then
         return 1
     fi
     return 0
 }
-
-

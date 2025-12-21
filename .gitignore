@@ -7,10 +7,10 @@ logs/
 *.env
 *.list
 *.lock
-ssh-agent.env
 
 # User specific
 commit_message.txt
+.env
 
 # OS-specific
 .DS_Store
@@ -25,6 +25,6 @@ Thumbs.db
 # Testing
 test/bats-tmp/
 
-# Local XDG mocks
+# Local XDG mocks (for development/testing)
 .config/handsshake/
 .local/state/handsshake/

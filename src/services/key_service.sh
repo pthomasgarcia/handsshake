@@ -1,14 +1,18 @@
 # shellcheck shell=bash
 
 # Source dependencies
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../util/validation_utils.sh"
 
 record_key() {
     local key_file
-    key_file=$(realpath "$1" 2>/dev/null || echo "$1")
-    if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] && grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
+    key_file=$(realpath "$1" 2> /dev/null || echo "$1")
+    if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] && \
+        grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
         return 0
     fi
     # Direct append, relying on higher-level lock
@@ -40,15 +44,17 @@ add_key() {
         echo "No key specified. Using default: $key_file"
     fi
 
-    if ! validate_file "$key_file" "r" 2>/dev/null; then
-         echo "Key file '$key_file' is missing or not readable." >&2
-         return 1
+    if ! validate_file "$key_file" "r" 2> /dev/null; then
+        echo "Key file '$key_file' is missing or not readable." >&2
+        return 1
     fi
 
     echo "Adding key '$key_file'..."
     if ssh-add -t "$HANDSSHAKE_DEFAULT_TIMEOUT" "$key_file"; then
-        log_info "Added key '$key_file' with timeout ${HANDSSHAKE_DEFAULT_TIMEOUT}s."
-        echo "Key '$key_file' added with timeout ${HANDSSHAKE_DEFAULT_TIMEOUT}s."
+        log_info "Added key '$key_file' with timeout \
+${HANDSSHAKE_DEFAULT_TIMEOUT}s."
+        echo "Key '$key_file' added with timeout \
+${HANDSSHAKE_DEFAULT_TIMEOUT}s."
         record_key "$key_file"
         return 0
     else
@@ -60,7 +66,7 @@ add_key() {
 
 remove_key() {
     local key_file="$1"
-    if ! validate_file "$key_file" "r" 2>/dev/null; then
+    if ! validate_file "$key_file" "r" 2> /dev/null; then
         echo "Key file '$key_file' is missing or not readable." >&2
         return 1
     fi
@@ -72,13 +78,16 @@ remove_key() {
         remove_key_record "$key_file"
         return 0
     else
-        # ssh-add returns non-zero if key wasn't in agent, but we should still clean record
+        # ssh-add returns non-zero if key wasn't in agent, but we should
+        # still clean record
         local status=$?
-        log_error "Failed to remove key '$key_file' from agent (Status: $status). Cleaning record anyway."
+        log_error "Failed to remove key '$key_file' from agent \
+(Status: $status). Cleaning record anyway."
         echo "Warning: Key '$key_file' might not have been in the agent." >&2
         # Clean record regardless
         remove_key_record "$key_file"
-        # We don't return 1 here because we successfully ensured it's gone from records
+        # We don't return 1 here because we successfully ensured it's gone
+        # from records
         return 0
     fi
 }
@@ -120,7 +129,8 @@ list_keys() {
 update_key_timeout() {
     local new_timeout="$1"
 
-    if ! [[ "$new_timeout" =~ ^[0-9]+$ ]] || [[ "$new_timeout" -gt 86400 ]]; then
+    if ! [[ "$new_timeout" =~ ^[0-9]+$ ]] || \
+        [[ "$new_timeout" -gt 86400 ]]; then
         echo "Timeout must be a positive integer <= 86400." >&2
         return 1
     fi
@@ -133,11 +143,12 @@ update_key_timeout() {
     local updated=0
     local key_file
     while IFS= read -r key_file || [ -n "$key_file" ]; do
-        if validate_file "$key_file" "r" 2>/dev/null; then
+        if validate_file "$key_file" "r" 2> /dev/null; then
             echo "Updating timeout for key '$key_file'..."
-            ssh-add -d "$key_file" >/dev/null 2>&1 || true
+            ssh-add -d "$key_file" > /dev/null 2>&1 || true
             if ssh-add -t "$new_timeout" "$key_file"; then
-                log_info "Updated timeout for key '$key_file' to ${new_timeout}s."
+                log_info "Updated timeout for key '$key_file' to \
+${new_timeout}s."
                 echo "Timeout updated for '$key_file'."
                 updated=$((updated + 1))
             else

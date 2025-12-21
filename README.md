@@ -86,13 +86,28 @@ handsshake timeout 7200
 
 You can modify the following variables in your `settings.conf`:
 
-- **`DEFAULT_KEY_TIMEOUT`**: The default duration (in seconds) that keys will remain active in the agent. Default is `86400` (24 hours).
-- **`VERBOSE`**: Set to `true` for detailed logging, or `false` for minimal output.
+- **`HANDSSHAKE_DEFAULT_TIMEOUT`**: The default duration (in seconds) that keys will remain active. Default is `86400` (24 hours).
+- **`HANDSSHAKE_VERBOSE`**: Set to `true` for detailed logging, or `false` for minimal output.
+
+## Development
+
+The project includes a `Makefile` for automated code quality checks.
+
+- **`make lint-shell`**: Run `shellcheck` on all scripts.
+- **`make format-shell`**: Auto-format code using `shfmt`.
+- **`make format-check`**: Check if code is properly formatted.
+- **`make check-line-length`**: Ensure no lines exceed 80 characters.
+- **`make ci`**: Run all linting and line-length checks.
+
+To run tests, use [BATS](https://github.com/bats-core/bats-core):
+```bash
+bats test/
+```
 
 ## Directory Structure
 
 - **`src/core/`**: Main entry point (`main.sh`).
-- **`src/services/`**: Service-oriented logic modules (key management, agent lifecycle, health checks).
-- **`src/lib/`**: Shared library scripts (configuration, constants, environment).
-- **`src/util/`**: Utility modules for file operations, logging, and validation.
+- **`src/services/`**: Service logic modules (key management, agent lifecycle).
+- **`src/lib/`**: Shared library scripts (configuration, constants).
+- **`src/util/`**: Utility modules (file operations, logging, validation).
 - **`test/`**: BATS test suite.
