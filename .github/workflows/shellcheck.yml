@@ -1,0 +1,33 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Install shfmt
+        run: |
+          SHFMT_VERSION="3.7.0"
+          curl -sSLo shfmt "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64"
+          chmod +x shfmt
+          sudo mv shfmt /usr/local/bin/
+
+      - name: Run ShellCheck
+        run: make lint-shell
+
+      - name: Check Line Length
+        run: make check-line-length
+
+      - name: Check Formatting
+        run: make format-check
