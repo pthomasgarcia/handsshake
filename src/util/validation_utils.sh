@@ -333,7 +333,7 @@ validate_identifier() {
         "$HANDSSHAKE_MESSAGE_INVALID_IDENTIFIER") || return $?
 
     # Check if the identifier is declared (as a variable or function)
-    if ! (declare -p "$identifier" &> /dev/null || \
+    if ! (declare -p "$identifier" &> /dev/null ||
         declare -F "$identifier" &> /dev/null); then
         _log_validation_error \
             "$HANDSSHAKE_MESSAGE_IDENTIFIER_UNDECLARED" "$identifier"
@@ -367,7 +367,7 @@ validate_directory() {
 
     # Resolve the directory path to an absolute path
     local resolved
-    if ! resolved=$(realpath "$dir" 2> /dev/null) && \
+    if ! resolved=$(realpath "$dir" 2> /dev/null) &&
         ! resolved=$(readlink -f "$dir" 2> /dev/null); then
         resolved="$dir" # Fallback to the original path
     fi
@@ -440,7 +440,7 @@ validate_file() {
         return "$HANDSSHAKE_CODE_FILE_NOT_FOUND"
     fi
 
-    if [[ "$permission" != "r" && "$permission" != "w" && \
+    if [[ "$permission" != "r" && "$permission" != "w" &&
         "$permission" != "x" ]]; then
         _log_validation_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: \
 Invalid permission mode '$permission'. Expected 'r', 'w', or 'x'." "$permission"

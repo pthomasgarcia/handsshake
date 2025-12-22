@@ -12,12 +12,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../util/validation_utils.sh"
 
 record_key() {
     local key_file
-    key_file=$(realpath "$1" 2>/dev/null || echo "$1")
+    key_file=$(realpath "$1" 2> /dev/null || echo "$1")
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] &&
         grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
         return 0
     fi
-    echo "$key_file" >>"$HANDSSHAKE_RECORD_FILE"
+    echo "$key_file" >> "$HANDSSHAKE_RECORD_FILE"
 }
 
 detach_record() {
@@ -46,7 +46,7 @@ attach() {
         echo "No key specified. Using default: $key_file"
     fi
 
-    if ! validate_file "$key_file" "r" 2>/dev/null; then
+    if ! validate_file "$key_file" "r" 2> /dev/null; then
         echo "Invalid key file: '$key_file' is missing or not readable." >&2
         return 1
     fi
@@ -75,7 +75,7 @@ detach() {
 
     # We attempt to detach from the agent even if the file is missing locally
     echo "Detaching key '$key_file'..."
-    if ssh-add -d "$key_file" 2>/dev/null; then
+    if ssh-add -d "$key_file" 2> /dev/null; then
         log_info "Detached key '$key_file' from agent."
         echo "Key '$key_file' detached."
     else
@@ -162,16 +162,16 @@ timeout() {
         [[ -z "$key_file" ]] && continue
         # Ensure we have the absolute path for ssh-add -d
         local abs_key
-        abs_key=$(realpath "$key_file" 2>/dev/null || echo "$key_file")
+        abs_key=$(realpath "$key_file" 2> /dev/null || echo "$key_file")
         if [[ -f "$abs_key" ]]; then
             # Re-attach with new timeout
             # Use || true to avoid triggering set -e if ssh-add fails
-            ssh-add -d "$abs_key" >/dev/null 2>&1 || true
-            if ssh-add -t "$new_timeout" "$abs_key" >/dev/null 2>&1; then
+            ssh-add -d "$abs_key" > /dev/null 2>&1 || true
+            if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
                 updated=$((updated + 1))
             fi
         fi
-    done <"$record_copy"
+    done < "$record_copy"
     rm -f "$record_copy"
 
     echo "Updated $updated keys."

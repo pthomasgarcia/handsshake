@@ -81,9 +81,9 @@ alias handsshake='source ...'"
     # Check permissions
     if [[ -d "$ssh_dir" ]]; then
         if [[ "${OSTYPE:-}" == "darwin"* ]]; then
-            perms=$(stat -f "%Lp" "$ssh_dir" 2>/dev/null || echo "000")
+            perms=$(stat -f "%Lp" "$ssh_dir" 2> /dev/null || echo "000")
         else
-            perms=$(stat -c "%a" "$ssh_dir" 2>/dev/null || echo "000")
+            perms=$(stat -c "%a" "$ssh_dir" 2> /dev/null || echo "000")
         fi
 
         if [[ "$perms" == "700" ]]; then

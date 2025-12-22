@@ -30,7 +30,7 @@ assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
 
 validate_dependency() {
     local cmd="$1"
-    if ! command -v "$cmd" >/dev/null 2>&1; then
+    if ! command -v "$cmd" > /dev/null 2>&1; then
         error_exit "Required command '$cmd' not found."
     fi
     return 0
@@ -50,7 +50,7 @@ validate_environment() {
 
 usage() {
     local exit_code="${1:-0}"
-    cat <<EOF
+    cat << EOF
 Usage: $(basename "$0") <command> [arguments]
 
 Commands:
@@ -80,30 +80,30 @@ dispatch() {
     shift
 
     case $cmd in
-    # Key management
-    attach | -a | --attach) attach "$@" ;;
-    detach | -d | --detach) detach "$@" ;;
-    flush | -f | --flush) flush "$@" ;;
+        # Key management
+        attach | -a | --attach) attach "$@" ;;
+        detach | -d | --detach) detach "$@" ;;
+        flush | -f | --flush) flush "$@" ;;
 
-    # Information/query
-    list | -l | --list) list_keys "$@" ;;
-    keys | -k | --keys) keys "$@" ;;
+        # Information/query
+        list | -l | --list) list_keys "$@" ;;
+        keys | -k | --keys) keys "$@" ;;
 
-    # Configuration
-    timeout | -t | --timeout) timeout "$@" ;;
+        # Configuration
+        timeout | -t | --timeout) timeout "$@" ;;
 
-    # Maintenance
-    cleanup | -c | --cleanup) cleanup "$@" ;;
-    health | -H | --health) health "$@" ;;
+        # Maintenance
+        cleanup | -c | --cleanup) cleanup "$@" ;;
+        health | -H | --health) health "$@" ;;
 
-    # Meta
-    version | -v | --version) version "$@" ;;
-    help | -h | --help)
-        usage 0
-        return 0
-        ;;
+        # Meta
+        version | -v | --version) version "$@" ;;
+        help | -h | --help)
+            usage 0
+            return 0
+            ;;
 
-    *) error_exit "Unknown command: $cmd" ;;
+        *) error_exit "Unknown command: $cmd" ;;
     esac
 }
 

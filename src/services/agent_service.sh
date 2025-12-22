@@ -21,9 +21,9 @@ load_agent_env() {
 start_agent() {
     local agent_out
     agent_out=$(ssh-agent -s)
-    SSH_AUTH_SOCK=$(echo "$agent_out" | \
+    SSH_AUTH_SOCK=$(echo "$agent_out" |
         sed -n 's/SSH_AUTH_SOCK=\([^;]*\);.*/\1/p')
-    SSH_AGENT_PID=$(echo "$agent_out" | \
+    SSH_AGENT_PID=$(echo "$agent_out" |
         sed -n 's/SSH_AGENT_PID=\([^;]*\);.*/\1/p')
 
     if [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ -z "${SSH_AGENT_PID:-}" ]]; then
@@ -50,7 +50,7 @@ SSH_AGENT_PID=${SSH_AGENT_PID}"
 is_agent_valid() {
     if [[ -n "${SSH_AUTH_SOCK:-}" ]] && [[ -n "${SSH_AGENT_PID:-}" ]]; then
         if [[ -S "$SSH_AUTH_SOCK" ]] &&
-            kill -0 "$SSH_AGENT_PID" 2>/dev/null; then
+            kill -0 "$SSH_AGENT_PID" 2> /dev/null; then
             return 0
         fi
     fi
@@ -81,9 +81,9 @@ cleanup() {
         stored_sock="$__parsed_sock"
         stored_pid="$__parsed_pid"
 
-        if kill -0 "$stored_pid" 2>/dev/null; then
+        if kill -0 "$stored_pid" 2> /dev/null; then
             local proc_name
-            proc_name=$(ps -p "$stored_pid" -o comm= 2>/dev/null)
+            proc_name=$(ps -p "$stored_pid" -o comm= 2> /dev/null)
             if [[ -n "$proc_name" ]] &&
                 [[ "$(basename "$proc_name")" == "ssh-agent" ]]; then
                 kill "$stored_pid"
@@ -100,7 +100,7 @@ cleanup() {
             local sock_dir
             sock_dir=$(dirname "$stored_sock")
             if [[ "$sock_dir" == /tmp/ssh-* ]] && [[ -d "$sock_dir" ]]; then
-                rmdir "$sock_dir" 2>/dev/null || true
+                rmdir "$sock_dir" 2> /dev/null || true
             fi
         fi
     fi

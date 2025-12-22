@@ -65,5 +65,5 @@ format-shell: tools
 	fi
 
 # CI target
-ci: lint-shell check-line-length
+ci: lint-shell check-line-length format-check
 	@echo "CI checks passed."
