@@ -5,10 +5,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
 
-check_health() {
+health() {
     echo "Health Check:"
     local ssh_dir="$HOME/.ssh"
-    local default_key="$ssh_dir/id_rsa"
+    local default_key="$ssh_dir/id_ed25519"
     local status="OK"
 
     # Agent Status
@@ -48,8 +48,8 @@ alias handsshake='source ...'"
         # 1: no identities
         # 2: could not contact agent
         local ssh_add_out
-        ssh_add_out=$(ssh-add -l 2>&1)
-        local ssh_add_exit=$?
+        ssh_add_out=$(ssh-add -l 2>&1) || local ssh_add_exit=$?
+        ssh_add_exit=${ssh_add_exit:-0}
 
         if [[ "$ssh_add_exit" -eq 0 ]]; then
             echo "  [OK] Agent is reachable."
@@ -80,12 +80,17 @@ alias handsshake='source ...'"
     local perms
     # Check permissions
     if [[ -d "$ssh_dir" ]]; then
-        perms=$(stat -c "%a" "$ssh_dir")
-        if [[ "$perms" -eq 700 ]]; then
+        if [[ "${OSTYPE:-}" == "darwin"* ]]; then
+            perms=$(stat -f "%Lp" "$ssh_dir" 2>/dev/null || echo "000")
+        else
+            perms=$(stat -c "%a" "$ssh_dir" 2>/dev/null || echo "000")
+        fi
+
+        if [[ "$perms" == "700" ]]; then
             echo "  [OK] $ssh_dir permissions are 700."
         else
             echo "  [WARNING] $ssh_dir permissions are $perms (expected 700)."
-            status="WARNING"
+            if [[ "$status" == "OK" ]]; then status="WARNING"; fi
         fi
     fi
 
@@ -97,5 +102,8 @@ alias handsshake='source ...'"
     fi
 
     echo "Overall Status: $status"
+    if [[ "$status" == "ERROR" ]]; then
+        return 1
+    fi
     return 0
 }

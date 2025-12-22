@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 # shellcheck shell=bash
 if [[ -z "${HANDSSHAKE_LOADED:-}" ]]; then
     HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,7 +30,7 @@ assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
 
 validate_dependency() {
     local cmd="$1"
-    if ! command -v "$cmd" > /dev/null 2>&1; then
+    if ! command -v "$cmd" >/dev/null 2>&1; then
         error_exit "Required command '$cmd' not found."
     fi
     return 0
@@ -51,119 +49,62 @@ validate_environment() {
 ########################################
 
 usage() {
-    cat << EOF
+    local exit_code="${1:-0}"
+    cat <<EOF
 Usage: $(basename "$0") <command> [arguments]
 
 Commands:
-  add [key_file]         : Add a key (default: ~/.ssh/id_rsa).
-  remove <key_file>      : Remove a specific key.
-  remove-all             : Remove all keys from the agent and records.
-  list                   : List keys currently managed by the agent.
+  attach [key_file]      : Attach key to agent (default: ~/.ssh/id_ed25519).
+  detach <key_file>      : Detach a specific key from the agent.
+  flush                  : Flush all keys from the agent and records.
+  list                   : List fingerprints of attached keys.
+  keys                   : List public strings of attached keys.
   timeout <seconds>      : Update timeout for all recorded keys.
-  cleanup                : Kill agent processes and remove socket files.
+  cleanup                : Kill agent and remove session files.
   health                 : Check SSH environment health.
-  help                   : Display this help message.
+  version                : Display version information.
 
 Arguments:
   key_file    Path to the SSH key file.
   seconds     New timeout in seconds (positive integer, max 86400).
 EOF
-    return 1
+    return "$exit_code"
 }
 
 dispatch() {
-    local command=""
-    local key_file=""
-    local new_timeout=""
-
-    if [[ "$#" -eq 0 ]]; then
-        usage
-        return $?
+    local cmd=${1:-}
+    if [[ -z "$cmd" ]]; then
+        usage 1
+        return 1
     fi
+    shift
 
-    # Argument Parsing
-    while [[ "$#" -gt 0 ]]; do
-        case "$1" in
-            add | remove | remove-all | list | timeout | cleanup | health)
-                command="$1"
-                shift
-                ;;
-            -h | --help)
-                usage
-                return $?
-                ;;
-            *)
-                if [[ -z "$key_file" ]] && [[ -z "$new_timeout" ]]; then
-                    if [[ "$command" == "add" ]] || \
-                        [[ "$command" == "remove" ]]; then
-                        key_file="$1"
-                    elif [[ "$command" == "timeout" ]]; then
-                        new_timeout="$1"
-                    else
-                        echo "Error: Unexpected argument '$1'." >&2
-                        usage
-                        return $?
-                    fi
-                else
-                    echo "Error: Too many arguments for command '$command'." >&2
-                    usage
-                    return $?
-                fi
-                shift
-                ;;
-        esac
-    done
+    case $cmd in
+    # Key management
+    attach | -a | --attach) attach "$@" ;;
+    detach | -d | --detach) detach "$@" ;;
+    flush | -f | --flush) flush "$@" ;;
 
-    if [[ -z "$command" ]]; then
-        echo "Error: No command specified." >&2
-        usage
-        return $?
-    fi
+    # Information/query
+    list | -l | --list) list_keys "$@" ;;
+    keys | -k | --keys) keys "$@" ;;
 
-    # Command Execution
-    case "$command" in
-        add)
-            # key_file is optional, defaults handled in add_key
-            add_key "$key_file"
-            ;;
-        remove)
-            if [[ -z "$key_file" ]]; then
-                echo "Error: Missing key_file for 'remove' command." >&2
-                usage
-                return $?
-            fi
-            remove_key "$key_file"
-            ;;
-        remove-all)
-            remove_all_keys
-            ;;
-        list)
-            # ensure_agent is already called by the unified lock in main
-            list_keys
-            ;;
-        timeout)
-            if [[ -z "$new_timeout" ]]; then
-                echo \
-                    "Error: Missing timeout in seconds for 'timeout' command." \
-                    >&2
-                usage
-                return $?
-            fi
-            update_key_timeout "$new_timeout"
-            ;;
-        cleanup)
-            cleanup_agent
-            ;;
-        health)
-            check_health
-            ;;
-        *)
-            echo "Error: Unknown command '$command'." >&2
-            usage
-            return $?
-            ;;
+    # Configuration
+    timeout | -t | --timeout) timeout "$@" ;;
+
+    # Maintenance
+    cleanup | -c | --cleanup) cleanup "$@" ;;
+    health | -H | --health) health "$@" ;;
+
+    # Meta
+    version | -v | --version) version "$@" ;;
+    help | -h | --help)
+        usage 0
+        return 0
+        ;;
+
+    *) error_exit "Unknown command: $cmd" ;;
     esac
-    return 0
 }
 
 ########################################
@@ -180,34 +121,25 @@ main() {
     # executed (dispatch command)
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         # Script is being executed directly
-        if [[ "$1" == "health" ]] || [[ "$1" == "list" ]] || \
-            [[ "$1" == "cleanup" ]]; then
+        if [[ "${1:-}" == "health" ]] || [[ "${1:-}" == "list" ]] ||
+            [[ "${1:-}" == "cleanup" ]] || [[ "${1:-}" == "keys" ]]; then
             # Allow informational/cleanup commands even if not sourced,
             # but warn that env changes won't persist.
-            echo -e "\033[1;33mNote:\033[0m handsshake is running as a \
-sub-process. Environment variables will not persist in your shell." >&2
+            echo -e "\033[1;33mNote:\033[0m handsshake is a sub-process." >&2
+            echo "Environment variables will not persist." >&2
         else
-            echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED to \
-modify your shell environment." >&2
+            echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED." >&2
             echo "Usage: source $(basename "$0") <command>" >&2
-            echo "Or ensure your alias is: \
-alias handsshake='source $(realpath "$0")'" >&2
+            echo "Or alias: handsshake='source $(realpath "$0")'" >&2
         fi
         dispatch "$@"
     else
         # Script is sourced
-        # If arguments provided, run dispatch immediately
         if [[ "$#" -gt 0 ]]; then
             dispatch "$@"
-        else
-            # If sourced with no args (e.g. in .bashrc),
-            # just ensure agent and return
-            :
         fi
     fi
     return $?
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
-fi
+run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"

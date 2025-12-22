@@ -43,21 +43,21 @@ Once installed and aliased, you can use the `handsshake` command to manage your 
 Adds a key to the agent with the configured default timeout.
 
 ```bash
-handsshake add ~/.ssh/id_rsa
+handsshake attach ~/.ssh/id_ed25519
 ```
 
 **Remove a key:**
 Removes a specific key from the agent and the persistent record.
 
 ```bash
-handsshake remove ~/.ssh/id_rsa
+handsshake detach ~/.ssh/id_ed25519
 ```
 
 **Remove all keys:**
 Removes all keys from the agent and clears the persistent record.
 
 ```bash
-handsshake remove-all
+handsshake flush
 ```
 
 **List keys:**

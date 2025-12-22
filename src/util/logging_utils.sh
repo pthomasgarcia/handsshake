@@ -73,6 +73,15 @@ log_info() {
     return 0
 }
 
+log_warn() {
+    # Logs a warning message.
+    #
+    # Args:
+    #   message: (string) The message to log.
+    log_message "$1" "WARN"
+    return 0
+}
+
 log_error() {
     # Logs an error message and prints to stderr.
     #

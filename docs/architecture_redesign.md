@@ -43,7 +43,7 @@ tests/                # BATS test suite
 1.  **Concurrency Control (Locking)**: Implement a `with_lock` utility using `flock` (file locking) to wrap all writes to `added_keys.list` and `ssh-agent.env`. This prevents race conditions.
 2.  **Service Layer**: Extract logic from `main.sh`.
     *   `agent_manager.sh`: Responsible solely for `start_agent`, `ensure_agent`, `kill_agent`.
-    *   `key_manager.sh`: Responsible for `add_key`, `remove_key`, `audit_keys`.
+    *   `key_manager.sh`: Responsible for `attach`, `detach`, `audit_keys`.
 3.  **Standardized State Paths**: Instead of storing state relative to the script, adhere to XDG Base Directory specs (e.g., `~/.local/state/handsshake/` or `~/.cache/handsshake/`) or a configurable `HANDSSHAKE_HOME`.
 
 ### Option B: Alternative Language (Python)
@@ -81,7 +81,7 @@ Given the complexity of process management (PIDs, signals) and state persistence
 3.  **Implement Locking**: Create `src/aux/lock_utils.sh` implementing `flock`.
 4.  **Extract Services**:
     *   Move `start_agent`, `ensure_agent` to `lib/services/agent_manager.sh`.
-    *   Move `add_key`, `list_keys` to `lib/services/key_manager.sh`.
+    *   Move `attach`, `list` to `lib/services/key_manager.sh`.
 5.  **Update Entry Point**: Rewrite `main.sh` to simply parse args and call the appropriate service function, wrapping operations in locks where necessary.
 
 ### Phase 3: Enhancements

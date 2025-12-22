@@ -9,8 +9,6 @@ HANDSSHAKE_VALIDATION_UTILS_LOADED=true
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/logging_utils.sh"
 
-# Patterns for validation
-# ...
 # Source shared constants
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/constants.sh"
