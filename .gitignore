@@ -28,3 +28,7 @@ test/bats-tmp/
 # Local XDG mocks (for development/testing)
 .config/handsshake/
 .local/state/handsshake/
+
+# Project documentation to ignore
+docs/architecture_redesign.md
+docs/TROUBLESHOOTING_LOG.md
