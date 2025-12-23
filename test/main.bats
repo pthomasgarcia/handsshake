@@ -47,18 +47,6 @@ setup() {
   # Create a temporary directory for the tests to run in.
   BATS_TMPDIR="$(mktemp -d -t handsshake-tests-XXXXXXXX)"
   
-  # Copy the handsshake source to the temporary directory
-  rsync -a --exclude='test' --exclude='.git' "$BATS_TEST_DIRNAME/../" "$BATS_TMPDIR/"
-  
-  # The script to test
-  HANDSSHAKE_SCRIPT="$BATS_TMPDIR/src/core/main.sh"
-  
-  # Verify the script exists
-  if [[ ! -f "$HANDSSHAKE_SCRIPT" ]]; then
-    echo "ERROR: Script not found: $HANDSSHAKE_SCRIPT"
-    exit 1
-  fi
-  
   # Setup XDG directories
   export XDG_CONFIG_HOME="$BATS_TMPDIR/.config"
   export XDG_STATE_HOME="$BATS_TMPDIR/.local/state"
@@ -70,21 +58,38 @@ setup() {
   mkdir -p "$CONFIG_DIR"
   mkdir -p "$STATE_DIR"
   
-  # Ensure the script is executable
-  chmod +x "$HANDSSHAKE_SCRIPT"
+  # The script to test
+  HANDSSHAKE_SCRIPT="$BATS_TEST_DIRNAME/../src/core/main.sh"
+  
+  # Verify the script exists
+  if [[ ! -f "$HANDSSHAKE_SCRIPT" ]]; then
+    echo "ERROR: Script not found: $HANDSSHAKE_SCRIPT"
+    exit 1
+  fi
+  
+  # Source the script to load functions into the test scope
+  # We use 'set --' to ensure the script doesn't see BATS' positional parameters
+  ( set --; source "$HANDSSHAKE_SCRIPT" )
+  
+  # Wait, if I use a subshell ( ), the functions won't persist.
+  # I must do it in the current shell.
+  local -a _bats_args=("$@")
+  set --
+  source "$HANDSSHAKE_SCRIPT"
+  set -- "${_bats_args[@]}"
   
   # Pre-create and truncate the record file
   : > "$STATE_DIR/added_keys.list"
 }
 
 teardown() {
-  # Always attempt cleanup even if previous tests failed
-  if [[ -x "$HANDSSHAKE_SCRIPT" ]]; then
-    run "$HANDSSHAKE_SCRIPT" cleanup 2>/dev/null || true
+  # Call cleanup function directly since we sourced the script
+  if [[ -n "${HANDSSHAKE_LOADED:-}" ]]; then
+    run main cleanup 2>/dev/null || true
   fi
   
   # Ensure cleanup even if script fails
-  if [[ -n "$SSH_AGENT_PID" ]]; then
+  if [[ -n "${SSH_AGENT_PID:-}" ]]; then
     kill "$SSH_AGENT_PID" 2>/dev/null || true
     unset SSH_AGENT_PID
   fi
@@ -99,7 +104,7 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_key_comment"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   
   assert_success
   assert_output --partial "Key '$dummy_key' attached"
@@ -112,7 +117,7 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_a_flag"
   
-  run "$HANDSSHAKE_SCRIPT" -a "$dummy_key"
+  run main -a "$dummy_key"
   
   assert_success
   assert_output --partial "Key '$dummy_key' attached"
@@ -125,7 +130,7 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_attach_flag"
   
-  run "$HANDSSHAKE_SCRIPT" --attach "$dummy_key"
+  run main --attach "$dummy_key"
   
   assert_success
   assert_output --partial "Key '$dummy_key' attached"
@@ -137,7 +142,7 @@ teardown() {
 @test "attach with non-existent key should fail" {
   local invalid_key="$BATS_TMPDIR/nonexistent_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$invalid_key"
+  run main attach "$invalid_key"
   
   assert_failure
   assert_output --partial "Invalid key file"
@@ -156,7 +161,7 @@ teardown() {
   
   create_test_key "$default_key" "default_key_test"
   
-  run "$HANDSSHAKE_SCRIPT" attach
+  run main attach
   
   assert_success
   assert_output --partial "Key '$default_key' attached"
@@ -173,10 +178,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_detach_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" detach "$dummy_key"
+  run main detach "$dummy_key"
   assert_success
   assert_output --partial "Key '$dummy_key' detached"
   
@@ -188,10 +193,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_d_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -d "$dummy_key"
+  run main -d "$dummy_key"
   assert_success
   assert_output --partial "Key '$dummy_key' detached"
   
@@ -203,10 +208,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_detach_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --detach "$dummy_key"
+  run main --detach "$dummy_key"
   assert_success
   assert_output --partial "Key '$dummy_key' detached"
   
@@ -218,14 +223,14 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" detach "$dummy_key"
+  run main detach "$dummy_key"
   
   assert_failure
   assert_output --partial "not found"
 }
 
 @test "detach without argument should fail" {
-  run "$HANDSSHAKE_SCRIPT" detach
+  run main detach
   
   assert_failure
   assert_output --partial "requires exactly one fingerprint"
@@ -237,10 +242,10 @@ teardown() {
   create_test_key "$dummy_key1" "key1"
   create_test_key "$dummy_key2" "key2"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key1"
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key2"
+  run main attach "$dummy_key1"
+  run main attach "$dummy_key2"
   
-  run "$HANDSSHAKE_SCRIPT" flush
+  run main flush
   assert_success
   assert_output --partial "All keys flushed"
   
@@ -254,10 +259,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_f_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -f
+  run main -f
   assert_success
   assert_output --partial "All keys flushed"
   
@@ -269,10 +274,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_flush_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --flush
+  run main --flush
   assert_success
   assert_output --partial "All keys flushed"
   
@@ -281,7 +286,7 @@ teardown() {
 }
 
 @test "flush with no keys attached should succeed" {
-  run "$HANDSSHAKE_SCRIPT" flush
+  run main flush
   
   assert_success
   assert_output --partial "All keys flushed"
@@ -291,10 +296,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_list_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" list
+  run main list
   assert_success
   assert_output --partial "test_list_key"
 }
@@ -303,10 +308,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_l_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -l
+  run main -l
   assert_success
   assert_output --partial "test_l_flag"
 }
@@ -315,10 +320,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_list_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --list
+  run main --list
   assert_success
   assert_output --partial "test_list_flag"
 }
@@ -327,10 +332,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_keys_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" keys
+  run main keys
   assert_success
   assert_output --partial "test_keys_key"
 }
@@ -339,10 +344,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_k_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -k
+  run main -k
   assert_success
   assert_output --partial "test_k_flag"
 }
@@ -351,10 +356,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key" "test_keys_flag"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --keys
+  run main --keys
   assert_success
   assert_output --partial "test_keys_flag"
 }
@@ -363,10 +368,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" timeout 1800
+  run main timeout 1800
   assert_success
   assert_output --partial "Updated 1 keys."
 }
@@ -375,10 +380,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -t 1800
+  run main -t 1800
   assert_success
   assert_output --partial "Updated 1 keys."
 }
@@ -387,26 +392,26 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --timeout 1800
+  run main --timeout 1800
   assert_success
   assert_output --partial "Updated 1 keys."
 }
 
 @test "timeout with invalid value should fail" {
-  run "$HANDSSHAKE_SCRIPT" timeout -5
+  run main timeout -5
   assert_failure
   assert_output --partial "positive integer required"
   
-  run "$HANDSSHAKE_SCRIPT" timeout "not_a_number"
+  run main timeout "not_a_number"
   assert_failure
   assert_output --partial "integer required"
 }
 
 @test "timeout without argument should fail" {
-  run "$HANDSSHAKE_SCRIPT" timeout
+  run main timeout
   assert_failure
   assert_output --partial "requires exactly one argument"
 }
@@ -415,10 +420,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" cleanup
+  run main cleanup
   assert_success
 }
 
@@ -426,10 +431,10 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" -c
+  run main -c
   assert_success
 }
 
@@ -437,73 +442,73 @@ teardown() {
   local dummy_key="$BATS_TMPDIR/dummy_key"
   create_test_key "$dummy_key"
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key"
+  run main attach "$dummy_key"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" --cleanup
+  run main --cleanup
   assert_success
 }
 
 @test "health command should work" {
-  run "$HANDSSHAKE_SCRIPT" health
+  run main health
   assert_success
 }
 
 @test "health with -H flag works" {
-  run "$HANDSSHAKE_SCRIPT" -H
+  run main -H
   assert_success
 }
 
 @test "health with --health flag works" {
-  run "$HANDSSHAKE_SCRIPT" --health
+  run main --health
   assert_success
 }
 
 @test "version command should show version" {
-  run "$HANDSSHAKE_SCRIPT" version
+  run main version
   assert_success
   assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
 @test "version with -v flag works" {
-  run "$HANDSSHAKE_SCRIPT" -v
+  run main -v
   assert_success
   assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
 @test "version with --version flag works" {
-  run "$HANDSSHAKE_SCRIPT" --version
+  run main --version
   assert_success
   assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
 @test "help command should show usage" {
-  run "$HANDSSHAKE_SCRIPT" help
+  run main help
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "help with -h flag works" {
-  run "$HANDSSHAKE_SCRIPT" -h
+  run main -h
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "help with --help flag works" {
-  run "$HANDSSHAKE_SCRIPT" --help
+  run main --help
   assert_success
   assert_output --partial "Usage"
 }
 
 @test "unknown command should fail" {
-  run "$HANDSSHAKE_SCRIPT" unknowncommand
+  run main unknowncommand
   assert_failure
   assert_output --partial "Unknown command"
 }
 
 @test "-- separator should work" {
   # Test that -- allows commands that look like flags
-  run "$HANDSSHAKE_SCRIPT" -- --help
+  run main -- --help
   # This should treat --help as a command, not show help
   # Either it fails with "Unknown command: --help" or processes it
   # depending on your implementation
@@ -523,10 +528,10 @@ teardown() {
   create_test_key "$dummy_key2" "concurrent_key2"
   
   # Run attaches sequentially to avoid race conditions in test
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key1"
+  run main attach "$dummy_key1"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key2"
+  run main attach "$dummy_key2"
   assert_success
   
   # Verify file has exactly 2 lines
@@ -555,13 +560,13 @@ teardown() {
   create_test_key "$dummy_key2"
   
   # Attach, detach, re-attach
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key1"
+  run main attach "$dummy_key1"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" attach "$dummy_key2"
+  run main attach "$dummy_key2"
   assert_success
   
-  run "$HANDSSHAKE_SCRIPT" detach "$dummy_key1"
+  run main detach "$dummy_key1"
   assert_success
   
   # Verify only key2 remains

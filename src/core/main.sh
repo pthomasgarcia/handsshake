@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 
 # shellcheck shell=bash
+
+########################################
+# Global State & Pathing
+########################################
+
+# Prevent re-loading if this script is sourced multiple times
 if [[ -z "${HANDSSHAKE_LOADED:-}" ]]; then
     HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     HANDSSHAKE_LOADED=true
 fi
 
-# Source core utilities (Bootstrapping)
+########################################
+# Bootstrapping
+########################################
+
+# Source core utilities first (Manual bootstrapping)
 # shellcheck source=/dev/null
 source "$HANDSSHAKE_SCRIPT_DIR/../util/logging_utils.sh"
 # shellcheck source=/dev/null
 source "$HANDSSHAKE_SCRIPT_DIR/../util/file_utils.sh"
 
-# Use assert_source for the remaining modules
+# Use assert_source for the remaining modules (assumes logging_utils is loaded)
 assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/config.sh"
 assert_source "$HANDSSHAKE_SCRIPT_DIR/../util/validation_utils.sh"
 
@@ -37,7 +47,7 @@ validate_dependency() {
 }
 
 validate_environment() {
-    local dependencies=(ssh-agent ssh-add awk pgrep kill flock realpath)
+    local dependencies=(ssh-agent ssh-add awk pgrep kill flock)
     for dep in "${dependencies[@]}"; do
         validate_dependency "$dep"
     done
@@ -51,22 +61,30 @@ validate_environment() {
 usage() {
     local exit_code="${1:-0}"
     cat << EOF
-Usage: $(basename "$0") <command> [arguments]
+Usage: source $(basename "$0") <command> [arguments]
+
+Note: Commands marked with [S] must be run in a sourced shell to
+      persist variables.
+      Commands marked with [X] can be run directly as an executable.
 
 Commands:
-  attach [key_file]      : Attach key to agent (default: ~/.ssh/id_ed25519).
-  detach <key_file>      : Detach a specific key from the agent.
-  flush                  : Flush all keys from the agent and records.
-  list                   : List fingerprints of attached keys.
-  keys                   : List public strings of attached keys.
-  timeout <seconds>      : Update timeout for all recorded keys.
-  cleanup                : Kill agent and remove session files.
-  health                 : Check SSH environment health.
-  version                : Display version information.
+  attach [key_file] [S]  : Attach key to agent (default: ~/.ssh/id_ed25519).
+  detach <key_file> [S]  : Detach a specific key from the agent.
+  flush [S]              : Flush all keys from the agent and records.
+  list [X]               : List fingerprints of attached keys.
+  keys [X]               : List public strings of attached keys.
+  timeout <seconds> [S]  : Update timeout for all recorded keys.
+  cleanup [X]            : Kill agent and remove session files.
+  health [X]             : Check SSH environment health.
+  version [X]            : Display version information.
 
 Arguments:
   key_file    Path to the SSH key file.
   seconds     New timeout in seconds (positive integer, max 86400).
+
+Examples:
+  source handsshake attach
+  handsshake health
 EOF
     return "$exit_code"
 }
@@ -80,16 +98,16 @@ dispatch() {
     shift
 
     case $cmd in
-        # Key management
+        # Key management (Requires Sourcing)
         attach | -a | --attach) attach "$@" ;;
         detach | -d | --detach) detach "$@" ;;
         flush | -f | --flush) flush "$@" ;;
 
-        # Information/query
+        # Information/query (Can run directly)
         list | -l | --list) list_keys "$@" ;;
         keys | -k | --keys) keys "$@" ;;
 
-        # Configuration
+        # Configuration (Requires Sourcing)
         timeout | -t | --timeout) timeout "$@" ;;
 
         # Maintenance
@@ -112,34 +130,71 @@ dispatch() {
 ########################################
 
 main() {
+    # 1. Ensure all required system binaries exist
     validate_environment
 
-    # Ensure agent is running/env is loaded for all commands that might need it.
+    # 2. Ensure the agent context is available (starts or connects to agent)
+    # Note: If executed directly, this agent process will become orphaned
+    # unless 'cleanup' is called later. We mitigate this by blocking
+    # state-changing commands in execution mode below.
     ensure_agent
 
-    # Check if script is being sourced (setup aliases) or
-    # executed (dispatch command)
+    # 3. Determine Execution Context (Sourced vs. Executed)
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-        # Script is being executed directly
-        if [[ "${1:-}" == "health" ]] || [[ "${1:-}" == "list" ]] ||
-            [[ "${1:-}" == "cleanup" ]] || [[ "${1:-}" == "keys" ]]; then
-            # Allow informational/cleanup commands even if not sourced,
-            # but warn that env changes won't persist.
-            echo -e "\033[1;33mNote:\033[0m handsshake is a sub-process." >&2
-            echo "Environment variables will not persist." >&2
-        else
-            echo -e "\033[1;31mWarning:\033[0m handsshake must be SOURCED." >&2
-            echo "Usage: source $(basename "$0") <command>" >&2
-            echo "Or alias: handsshake='source $(realpath "$0")'" >&2
-        fi
-        dispatch "$@"
+
+        ####################################################
+        # SCENARIO: Script is EXECUTED directly (Subprocess)
+        ####################################################
+
+        # We strictly limit what commands can run in a subprocess to
+        # prevent "Zombie Agents" and confusion about why variables
+        # aren't set in the parent shell.
+
+        local cmd="${1:-help}"
+
+        case "$cmd" in
+            health | list | keys | version | cleanup | help | -h | --help)
+                # Read-only or self-destructive commands are safe
+                dispatch "$@"
+                ;;
+            *)
+                # State-changing commands are unsafe to run as a subprocess
+                # because SSH_AUTH_SOCK will die when this script exits.
+                local script_name
+                script_name="$(basename "$0")"
+                local full_path="$HANDSSHAKE_SCRIPT_DIR/$script_name"
+                local red="\033[1;31m"
+                local yellow="\033[1;33m"
+                local cyan="\033[1;36m"
+                local nc="\033[0m" # No Color
+
+                echo -e "${red}Error:${nc} Command '$cmd' requires shell \
+environment integration." >&2
+                echo -e "${yellow}Reason:${nc} Environment variables will \
+not persist to your current shell." >&2
+                echo "" >&2
+                echo "You must SOURCE this script to use this command:" >&2
+                echo -e "  ${cyan}source $full_path $cmd $*${nc}" >&2
+                echo "" >&2
+                echo "Or create an alias in your .bashrc/.zshrc:" >&2
+                echo -e "  ${cyan}alias handsshake='source $full_path'${nc}" >&2
+                return 1
+                ;;
+        esac
+
     else
-        # Script is sourced
+
+        ####################################################
+        # SCENARIO: Script is SOURCED (Parent Shell)
+        ####################################################
+
         if [[ "$#" -gt 0 ]]; then
             dispatch "$@"
         fi
     fi
+
     return $?
 }
 
+# Execute main with locking to prevent race conditions
 run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
