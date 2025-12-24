@@ -4,12 +4,10 @@
 # for all handsshake BATS tests.
 
 # Record the real HOME before we start mocking it
-# We use getent or eval to find the actual home directory from the OS
 if [[ -z "${REAL_HOME_FOR_GUARD:-}" ]]; then
     if command -v getent >/dev/null 2>&1; then
         REAL_HOME_FOR_GUARD=$(getent passwd "$(whoami)" | cut -d: -f6)
     fi
-    # Fallback to eval expansion if getent is missing
     : "${REAL_HOME_FOR_GUARD:=$(eval echo "~$(whoami)")}"
     export REAL_HOME_FOR_GUARD
 fi
@@ -83,6 +81,21 @@ create_test_key() {
     fi
 }
 
+generate_test_identity() {
+    local slug="$1"
+    local algo="${2:-rsa}"
+    local comment="handsshake-test-$slug"
+    
+    # Policy-driven pathing: Use dedicated identities folder
+    local identities_dir="$BATS_TMPDIR/identities"
+    mkdir -p "$identities_dir"
+    
+    local key_path="$identities_dir/hsh-test-$slug-$algo.identity"
+    create_test_key "$key_path" "$comment"
+    
+    echo "$key_path"
+}
+
 verify_agent_contains_key() {
     local key_comment="$1"
     if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
@@ -137,21 +150,26 @@ teardown_readonly() {
 
 # Setup function
 setup() {
-    # Create a temporary directory for the tests to run in.
+    # 1. SCRUB ENVIRONMENT
+    # Completely isolate from any existing SSH agent
+    unset SSH_AUTH_SOCK
+    unset SSH_AGENT_PID
+    unset SSH_ASKPASS
+    
+    # 2. CREATE STRUCTURED VIRTUAL ROOT
     BATS_TMPDIR="$(mktemp -d -t handsshake-tests-XXXXXXXX)"
-
+    
     # Use temporary HOME directory to avoid touching real files
-    export HOME="$BATS_TMPDIR/home"
+    export HOME="$BATS_TMPDIR/mock-home"
+    mkdir -p "$HOME/.ssh"
 
     if ! check_isolation; then
         exit 1
     fi
 
-    mkdir -p "$HOME/.ssh"
-
     # Setup XDG directories based on mocked HOME
-    export XDG_CONFIG_HOME="$HOME/.config"
-    export XDG_STATE_HOME="$HOME/.local/state"
+    export XDG_CONFIG_HOME="$BATS_TMPDIR/config"
+    export XDG_STATE_HOME="$BATS_TMPDIR/state"
 
     # Define paths based on XDG standard as implemented in config.sh
     export CONFIG_DIR="$XDG_CONFIG_HOME/handsshake"

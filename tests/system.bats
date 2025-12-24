@@ -78,8 +78,8 @@ load "test_helper/common_setup.bash"
 # --- System Resilience & Recovery ---
 
 @test "reconnects when agent dies unexpectedly" {
-  local test_key="$BATS_TMPDIR/recovery_key_rsa"
-  create_test_key "$test_key" "recovery_test"
+  local test_key
+  test_key=$(generate_test_identity "recovery-basic" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -100,8 +100,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "recovers from repeated agent crashes" {
-  local test_key="$BATS_TMPDIR/crash_test_rsa"
-  create_test_key "$test_key" "crash_test"
+  local test_key
+  test_key=$(generate_test_identity "recovery-stress" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -133,8 +133,8 @@ load "test_helper/common_setup.bash"
   export SSH_AUTH_SOCK="$external_sock"
   export SSH_AGENT_PID="$external_pid"
   
-  local test_key="$BATS_TMPDIR/external_agent_key_rsa"
-  create_test_key "$test_key" "external_agent_test"
+  local test_key
+  test_key=$(generate_test_identity "multi-agent" "rsa")
   
   # Should use the external agent because ensure_agent sees it as valid
   run main attach "$test_key"
@@ -142,7 +142,7 @@ load "test_helper/common_setup.bash"
   
   # Verify key is in external agent using our list command
   run main list
-  assert_output --partial "external_agent_test"
+  assert_output --partial "handsshake-test-multi-agent"
   
   # Clean up external agent
   kill "$external_pid" 2>/dev/null || true
@@ -151,8 +151,8 @@ load "test_helper/common_setup.bash"
 # --- Resource Management ---
 
 @test "cleanup removes all handsshake resources" {
-  local test_key="$BATS_TMPDIR/cleanup_res_rsa"
-  create_test_key "$test_key" "cleanup_test"
+  local test_key
+  test_key=$(generate_test_identity "cleanup-final" "rsa")
   
   # Create state
   run main attach "$test_key"
@@ -171,33 +171,25 @@ load "test_helper/common_setup.bash"
 }
 
 @test "handles missing configuration gracefully" {
-  # Record the config dir path
   local target_dir="$CONFIG_DIR"
-  
-  # Remove config directory entirely
   rm -rf "$target_dir"
   
-  # Should use defaults without error
   run main health
   assert_success
   
-  # Re-create it if load_config didn't (currently load_config only creates state dirs)
   mkdir -p "$target_dir"
   [ -d "$target_dir" ]
 }
 
 @test "handles corrupted configuration file" {
-  # Create corrupted config
   mkdir -p "$CONFIG_DIR"
   echo "invalid !!! bash syntax" > "$CONFIG_DIR/settings.conf"
   echo "HANDSSHAKE_DEFAULT_TIMEOUT=not_a_number" >> "$CONFIG_DIR/settings.conf"
   
-  # Should handle gracefully (log errors but proceed with defaults)
   run main health
   assert_success
 }
 
 @test "state-changing commands fail when executed directly" {
-  # We verify the HANDSSHAKE_LOADED variable is set to true when sourced
   [ "${HANDSSHAKE_LOADED:-}" = "true" ]
 }

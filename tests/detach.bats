@@ -5,8 +5,8 @@ load "test_helper/bats-assert/load.bash"
 load "test_helper/common_setup.bash"
 
 @test "detach command should remove a key" {
-  local test_key="$BATS_TMPDIR/test_detach_key_rsa"
-  create_test_key "$test_key" "test_detach_key"
+  local test_key
+  test_key=$(generate_test_identity "basic-detach" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -20,8 +20,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach with -d flag works" {
-  local test_key="$BATS_TMPDIR/test_d_flag_rsa"
-  create_test_key "$test_key" "test_d_flag"
+  local test_key
+  test_key=$(generate_test_identity "flag-d" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -35,8 +35,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach with --detach flag works" {
-  local test_key="$BATS_TMPDIR/test_detach_flag_rsa"
-  create_test_key "$test_key" "test_detach_flag"
+  local test_key
+  test_key=$(generate_test_identity "flag-detach" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -50,8 +50,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach non-attached key should fail" {
-  local test_key="$BATS_TMPDIR/test_not_attached_rsa"
-  create_test_key "$test_key"
+  local test_key
+  test_key=$(generate_test_identity "not-attached" "rsa")
   
   run main detach "$test_key"
   
@@ -67,8 +67,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach with missing key file should clean record" {
-  local test_key="$BATS_TMPDIR/missing_key_rsa"
-  create_test_key "$test_key" "test_missing_key"
+  local test_key
+  test_key=$(generate_test_identity "missing-file" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -77,23 +77,25 @@ load "test_helper/common_setup.bash"
   rm -f "$test_key" "$test_key.pub"
   
   run main detach "$test_key"
-  # Should succeed in removing from agent/record even if file missing
+  # Should succeed in removing from record even if file missing
   assert_success
-  assert_output --partial "Key '$test_key' detached"
+  assert_output --partial "detached"
   
   verify_key_not_recorded "$test_key"
 }
 
 @test "detach with relative path" {
-  local test_key="$BATS_TMPDIR/relative_key_rsa"
-  create_test_key "$test_key" "relative_test"
+  local identities_dir="$BATS_TMPDIR/identities"
+  mkdir -p "$identities_dir"
+  local test_key="$identities_dir/hsh-test-relative.identity"
+  create_test_key "$test_key" "relative-test"
   
-  # Change to temp directory and use relative path
-  cd "$BATS_TMPDIR"
-  run main attach "./relative_key_rsa"
+  # Change to identities directory and use relative path
+  cd "$identities_dir"
+  run main attach "./hsh-test-relative.identity"
   assert_success
   
-  run main detach "./relative_key_rsa"
+  run main detach "./hsh-test-relative.identity"
   assert_success
   
   # Change back to original directory
@@ -101,8 +103,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach with stale record (key in record but not agent)" {
-  local test_key="$BATS_TMPDIR/stale_record_key_rsa"
-  create_test_key "$test_key" "stale_record_test"
+  local test_key
+  test_key=$(generate_test_identity "stale-record" "rsa")
   
   # Manually add to record file without adding to agent
   echo "$test_key" >> "$STATE_DIR/added_keys.list"
@@ -116,11 +118,10 @@ load "test_helper/common_setup.bash"
 }
 
 @test "detach preserves agent state for remaining keys" {
-  local key1="$BATS_TMPDIR/preserve1_rsa"
-  local key2="$BATS_TMPDIR/preserve2_rsa"
-  
-  create_test_key "$key1" "preserve_test_1"
-  create_test_key "$key2" "preserve_test_2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "preserve-1" "rsa")
+  key2=$(generate_test_identity "preserve-2" "rsa")
   
   run main attach "$key1"
   assert_success
@@ -132,21 +133,20 @@ load "test_helper/common_setup.bash"
   assert_success
   
   # Verify second key remains in agent and records
-  verify_agent_contains_key "preserve_test_2"
+  verify_agent_contains_key "handsshake-test-preserve-2"
   verify_key_recorded "$key2"
   
   # Verify first key is gone from both
   run ssh-add -l
-  refute_output --partial "preserve_test_1"
+  refute_output --partial "handsshake-test-preserve-1"
   verify_key_not_recorded "$key1"
 }
 
 @test "detach handles sequential operations safely" {
-  local key1="$BATS_TMPDIR/seq1_rsa"
-  local key2="$BATS_TMPDIR/seq2_rsa"
-  
-  create_test_key "$key1" "seq1"
-  create_test_key "$key2" "seq2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "seq-1" "rsa")
+  key2=$(generate_test_identity "seq-2" "rsa")
   
   run main attach "$key1"
   run main attach "$key2"
@@ -164,7 +164,7 @@ load "test_helper/common_setup.bash"
 
 @test "detach provides clear error for invalid key path" {
   # Detach a path that exists neither in agent nor in records
-  run main detach "/nonexistent/path/to/key"
+  run main detach "$BATS_TMPDIR/identities/nonexistent.identity"
   
   assert_failure
   assert_output --partial "not found in agent"

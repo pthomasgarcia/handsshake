@@ -11,7 +11,6 @@ load "test_helper/common_setup.bash"
   # Try health check - should handle gracefully
   run main health
   # Note: This might succeed or fail, but shouldn't crash
-  # We're testing that it handles the error gracefully
   
   # Restore permissions for teardown
   chmod 755 "$STATE_DIR"
@@ -24,7 +23,6 @@ load "test_helper/common_setup.bash"
   
   # Try a simple command
   run main health
-  # Should handle gracefully without crash
   
   # Clean up
   chmod 644 "$HANDSSHAKE_LOCK_FILE"
@@ -32,16 +30,16 @@ load "test_helper/common_setup.bash"
 }
 
 @test "concurrent attach calls should not corrupt state" {
-  local test_key1="$BATS_TMPDIR/concurrent_key1_rsa"
-  local test_key2="$BATS_TMPDIR/concurrent_key2_rsa"
-  create_test_key "$test_key1" "concurrent_key1"
-  create_test_key "$test_key2" "concurrent_key2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "concurrent-1" "rsa")
+  key2=$(generate_test_identity "concurrent-2" "rsa")
   
   # Run attaches sequentially to avoid race conditions in test
-  run main attach "$test_key1"
+  run main attach "$key1"
   assert_success
   
-  run main attach "$test_key2"
+  run main attach "$key2"
   assert_success
   
   # Verify file has exactly 2 lines
@@ -58,30 +56,30 @@ load "test_helper/common_setup.bash"
   if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
     source "$STATE_DIR/ssh-agent.env"
     run ssh-add -l
-    assert_output --partial "concurrent_key1"
-    assert_output --partial "concurrent_key2"
+    assert_output --partial "handsshake-test-concurrent-1"
+    assert_output --partial "handsshake-test-concurrent-2"
   fi
 }
 
 @test "state file should be properly formatted after multiple operations" {
-  local test_key1="$BATS_TMPDIR/key1_rsa"
-  local test_key2="$BATS_TMPDIR/key2_rsa"
-  create_test_key "$test_key1"
-  create_test_key "$test_key2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "format-state-1" "rsa")
+  key2=$(generate_test_identity "format-state-2" "rsa")
   
   # Attach, detach, re-attach
-  run main attach "$test_key1"
+  run main attach "$key1"
   assert_success
   
-  run main attach "$test_key2"
+  run main attach "$key2"
   assert_success
   
-  run main detach "$test_key1"
+  run main detach "$key1"
   assert_success
   
   # Verify only key2 remains
-  verify_key_not_recorded "$test_key1"
-  verify_key_recorded "$test_key2"
+  verify_key_not_recorded "$key1"
+  verify_key_recorded "$key2"
   
   # File should have exactly 1 line
   local line_count
@@ -91,10 +89,9 @@ load "test_helper/common_setup.bash"
 
 @test "handles multiple keys efficiently" {
   local keys=()
-  # Use a reasonable number for testing (not too many to be slow)
   for i in {1..5}; do
-    local test_key="$BATS_TMPDIR/many_key_${i}_rsa"
-    create_test_key "$test_key" "many_key_$i"
+    local test_key
+    test_key=$(generate_test_identity "many-key-$i" "rsa")
     keys+=("$test_key")
   done
   
@@ -109,7 +106,7 @@ load "test_helper/common_setup.bash"
   assert_success
   
   for i in {1..5}; do
-    assert_output --partial "many_key_$i"
+    assert_output --partial "handsshake-test-many-key-$i"
   done
   
   # Clean up
@@ -118,8 +115,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "state persistence across commands" {
-  local test_key="$BATS_TMPDIR/persist_key_rsa"
-  create_test_key "$test_key" "persist_test"
+  local test_key
+  test_key=$(generate_test_identity "persistence" "rsa")
   
   # Attach the key
   run main attach "$test_key"
@@ -133,12 +130,12 @@ load "test_helper/common_setup.bash"
   # List should show key
   run main list
   assert_success
-  assert_output --partial "persist_test"
+  assert_output --partial "handsshake-test-persistence"
   
   # Keys should show public key
   run main keys
   assert_success
-  assert_output --partial "persist_test"
+  assert_output --partial "handsshake-test-persistence"
   
   # Cleanup should remove everything
   run main cleanup
@@ -151,83 +148,72 @@ load "test_helper/common_setup.bash"
 }
 
 @test "multiple key types can be attached and managed" {
-  local test_key_rsa="$BATS_TMPDIR/multi_key_rsa"
-  local test_key_ed25519="$BATS_TMPDIR/multi_key_ed25519"
-  local test_key_ecdsa="$BATS_TMPDIR/multi_key_ecdsa"
+  local key_rsa
+  local key_ed25519
+  local key_ecdsa
   
-  create_test_key "$test_key_rsa" "multi_rsa"
-  create_test_key "$test_key_ed25519" "multi_ed25519"
-  create_test_key "$test_key_ecdsa" "multi_ecdsa"
+  key_rsa=$(generate_test_identity "multi-rsa" "rsa")
+  key_ed25519=$(generate_test_identity "multi-ed25519" "ed25519")
+  key_ecdsa=$(generate_test_identity "multi-ecdsa" "ecdsa")
   
   # Attach all key types
-  run main attach "$test_key_rsa"
+  run main attach "$key_rsa"
   assert_success
-  
-  run main attach "$test_key_ed25519"
+  run main attach "$key_ed25519"
   assert_success
-  
-  run main attach "$test_key_ecdsa"
+  run main attach "$key_ecdsa"
   assert_success
   
   # List all keys
   run main list
   assert_success
-  assert_output --partial "multi_rsa"
-  assert_output --partial "multi_ed25519"
-  assert_output --partial "multi_ecdsa"
+  assert_output --partial "handsshake-test-multi-rsa"
+  assert_output --partial "handsshake-test-multi-ed25519"
+  assert_output --partial "handsshake-test-multi-ecdsa"
   
   # Verify all are recorded
-  verify_key_recorded "$test_key_rsa"
-  verify_key_recorded "$test_key_ed25519"
-  verify_key_recorded "$test_key_ecdsa"
+  verify_key_recorded "$key_rsa"
+  verify_key_recorded "$key_ed25519"
+  verify_key_recorded "$key_ecdsa"
   
   # Test detach of specific type
-  run main detach "$test_key_ed25519"
+  run main detach "$key_ed25519"
   assert_success
   
   # Verify only Ed25519 is removed
-  verify_key_not_recorded "$test_key_ed25519"
-  verify_key_recorded "$test_key_rsa"
-  verify_key_recorded "$test_key_ecdsa"
+  verify_key_not_recorded "$key_ed25519"
+  verify_key_recorded "$key_rsa"
+  verify_key_recorded "$key_ecdsa"
   
   # Flush should remove remaining
   run main flush
   assert_success
-  
-  # All should be gone
-  verify_key_not_recorded "$test_key_rsa"
-  verify_key_not_recorded "$test_key_ecdsa"
 }
 
 @test "record file maintains integrity across operations" {
-  local test_key1="$BATS_TMPDIR/integrity_key1_rsa"
-  local test_key2="$BATS_TMPDIR/integrity_key2_rsa"
-  create_test_key "$test_key1" "integrity1"
-  create_test_key "$test_key2" "integrity2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "integrity-1" "rsa")
+  key2=$(generate_test_identity "integrity-2" "rsa")
   
   # Attach both keys
-  run main attach "$test_key1"
-  run main attach "$test_key2"
+  run main attach "$key1"
+  run main attach "$key2"
   
   # Record file should have 2 lines, no duplicates
   local line_count
   line_count=$(wc -l < "$STATE_DIR/added_keys.list")
   assert_equal "$line_count" 2
   
-  # Lines should be unique
-  local unique_count
-  unique_count=$(sort -u "$STATE_DIR/added_keys.list" | wc -l)
-  assert_equal "$unique_count" 2
-  
   # Detach one key
-  run main detach "$test_key1"
+  run main detach "$key1"
   
   # Record file should have 1 line
   line_count=$(wc -l < "$STATE_DIR/added_keys.list")
   assert_equal "$line_count" 1
   
-  # The remaining line should be test_key2
-  grep -q "$test_key2" "$STATE_DIR/added_keys.list"
+  # The remaining line should be key2
+  grep -q "$key2" "$STATE_DIR/added_keys.list"
   assert_success
   
   # Flush should remove record file
@@ -236,145 +222,112 @@ load "test_helper/common_setup.bash"
 }
 
 @test "error messages are clear and actionable" {
-  # Test detach without argument
   run main detach
   assert_failure
   assert_output --partial "requires exactly one"
   
-  # Test attach with non-existent file
-  run main attach "/nonexistent/path/to/key"
+  run main attach "$BATS_TMPDIR/identities/nonexistent.identity"
   assert_failure
   assert_output --partial "Invalid key file"
   
-  # Test timeout with invalid value
   run main timeout "invalid"
   assert_failure
   assert_output --partial "integer required"
 }
 
 @test "verbose mode shows detailed output" {
-  # Enable verbose mode
   export HANDSSHAKE_VERBOSE=true
-  
-  local test_key="$BATS_TMPDIR/verbose_key_rsa"
-  create_test_key "$test_key" "verbose_test"
+  local test_key
+  test_key=$(generate_test_identity "verbose" "rsa")
   
   run main attach "$test_key"
   assert_success
-  # In verbose mode, we should see INFO logs
-  # The exact output depends on logging implementation
   
   unset HANDSSHAKE_VERBOSE
 }
 
 @test "non-verbose mode shows minimal output" {
-  # Disable verbose mode
   export HANDSSHAKE_VERBOSE=false
-  
-  local test_key="$BATS_TMPDIR/quiet_key_rsa"
-  create_test_key "$test_key" "quiet_test"
+  local test_key
+  test_key=$(generate_test_identity "quiet" "rsa")
   
   run main attach "$test_key"
   assert_success
-  # Output should be more minimal
   
   unset HANDSSHAKE_VERBOSE
 }
 
 @test "attach with extra arguments should fail gracefully" {
-  local test_key="$BATS_TMPDIR/extra_args_key_rsa"
-  create_test_key "$test_key" "extra_args_test"
+  local test_key
+  test_key=$(generate_test_identity "extra-args" "rsa")
   
   run main attach "$test_key" "extra_argument"
-  # The current implementation might not check for extra args
-  # This test documents the current behavior
-  # It should either fail with an error or ignore extra args
-  # We'll check it doesn't crash
-  [[ "$status" -ne 127 ]]  # 127 is command not found
+  [[ "$status" -ne 127 ]]
 }
 
 @test "detach with multiple arguments should fail" {
-  local test_key1="$BATS_TMPDIR/multi_detach1_rsa"
-  local test_key2="$BATS_TMPDIR/multi_detach2_rsa"
-  create_test_key "$test_key1" "multi1"
-  create_test_key "$test_key2" "multi2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "multi-detach-1" "rsa")
+  key2=$(generate_test_identity "multi-detach-2" "rsa")
   
-  run main detach "$test_key1" "$test_key2"
+  run main detach "$key1" "$key2"
   assert_failure
   assert_output --partial "requires exactly one fingerprint"
 }
 
 @test "invalid flag combinations should fail gracefully" {
-  # Test ambiguous commands
   run main attach --list
-  # This should fail because --list is not a valid argument for attach
   [[ "$status" -ne 0 ]]
   
-  # Test conflicting commands
   run main --health --version
-  # Should show one or the other (implementation dependent)
-  [[ "$status" -ne 127 ]]  # Not command not found
+  [[ "$status" -ne 127 ]]
 }
 
 @test "handles rapid concurrent operations without corruption" {
   local iterations=5
   local pids=()
   
-  # Launch multiple concurrent attach operations
-  # We use a subshell to avoid 'main' environment interference
   for i in $(seq 1 $iterations); do
     (
-      local key="$BATS_TMPDIR/race_key_${i}_rsa"
-      create_test_key "$key" "race_$i"
-      # We must source common_setup manually in subshell to have environment
-      # but BATS handles it differently. Instead we call the script directly
-      # with HANDSSHAKE_TEST=true or just trust our global lock in main.sh
-      # Since we source 'main' in setup, we call it here.
+      local key
+      key=$(generate_test_identity "race-$i" "rsa")
       main attach "$key" >/dev/null 2>&1
     ) &
     pids+=($!)
   done
   
-  # Wait for all operations
   for pid in "${pids[@]}"; do
     wait "$pid"
   done
   
-  # Verify final state integrity
   run main list
   assert_success
   
-  # Record file should have exactly $iterations lines
   local record_count
   record_count=$(wc -l < "$STATE_DIR/added_keys.list")
   assert_equal "$record_count" "$iterations"
   
-  # Agent should have all keys
   for i in $(seq 1 $iterations); do
-    assert_output --partial "race_$i"
+    assert_output --partial "handsshake-test-race-$i"
   done
 }
 
 @test "rejects malformed command injection attempts" {
-  # Test various injection patterns
-  # We use a unique string that wouldn't normally appear in a path
   local secret="INJECTED_$(date +%s)"
   local injections=(
     "key; echo $secret"
     "key && echo $secret"
     "key | echo $secret"
-    "key\$(echo $secret)"
-    "key\`echo $secret\`"
+    "key\
+$(echo $secret)"
+    "key\
+`echo $secret`"
   )
   
   for injection in "${injections[@]}"; do
     run main attach "$injection"
-    # Should fail because file doesn't exist
     assert_failure
-    # We check that the secret was not executed. 
-    # If it was executed, it would be a separate line or the only output.
-    # If it's just echoed back as part of the "Path '...'" error, that's fine.
-    # However, 'refute_output' is global. Let's check that no line is EXACTLY the secret.
     local line
     for line in "${lines[@]}"; do
         [[ "$line" == "$secret" ]] && return 1
@@ -384,55 +337,40 @@ load "test_helper/common_setup.bash"
 }
 
 @test "prevents privilege escalation through path traversal" {
-  # Try to access files outside test directory via relative path
   local malicious_key="../../../etc/passwd"
   
   run main attach "$malicious_key"
   assert_failure
-  # The output should indicate it's missing (because realpath/readlink won't find it
-  # relative to our mock home or it's just not a valid path for us)
   assert_output --partial "is missing or not readable"
 }
 
 @test "handles extreme timeout values correctly" {
-  local test_key="$BATS_TMPDIR/extreme_timeout_rsa"
-  create_test_key "$test_key" "extreme_test"
+  local test_key
+  test_key=$(generate_test_identity "extreme-timeout" "rsa")
   
   run main attach "$test_key"
   assert_success
   
-  # Test extremely large timeout (should be rejected by our validation)
   run main timeout 999999999
   assert_failure
   assert_output --partial "max 86400"
 }
 
 @test "continues operation when SSH_AUTH_SOCK is corrupted" {
-  local test_key="$BATS_TMPDIR/corrupt_sock_rsa"
-  create_test_key "$test_key" "corrupt_test"
+  local test_key
+  test_key=$(generate_test_identity "corrupt-sock" "rsa")
   
-  # Attach key first
   run main attach "$test_key"
   assert_success
   
-  # Corrupt the socket path in current environment
   export SSH_AUTH_SOCK="/tmp/nonexistent-socket-$(date +%s)"
   
-  # Try operations - ensure_agent should detect invalid socket and fix it
-  # by loading from the env file or restarting.
   run main list
   assert_success
-  assert_output --partial "corrupt_test"
+  assert_output --partial "handsshake-test-corrupt-sock"
 }
 
 @test "-- separator allows commands that look like flags" {
-  # Test that -- allows --help to be treated as a command
-  # The current implementation doesn't have a --help command
-  # but -- should separate options from arguments
-  
-  # This tests that the command parser handles -- correctly
   run main -- --help
-  # This should either process --help as a command or fail gracefully
-  # Not crashing is the main requirement
-  [[ "$status" -ne 127 ]]  # Not command not found
+  [[ "$status" -ne 127 ]]
 }

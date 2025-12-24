@@ -7,13 +7,13 @@ load "test_helper/common_setup.bash"
 # --- Flush Operations ---
 
 @test "flush command should remove all keys" {
-  local test_key1="$BATS_TMPDIR/test_key1_rsa"
-  local test_key2="$BATS_TMPDIR/test_key2_rsa"
-  create_test_key "$test_key1" "key1"
-  create_test_key "$test_key2" "key2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "flush-1" "rsa")
+  key2=$(generate_test_identity "flush-2" "rsa")
   
-  run main attach "$test_key1"
-  run main attach "$test_key2"
+  run main attach "$key1"
+  run main attach "$key2"
   
   run main flush
   assert_success
@@ -24,8 +24,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "flush with -f flag works" {
-  local test_key="$BATS_TMPDIR/test_f_flag_rsa"
-  create_test_key "$test_key" "test_f_flag"
+  local test_key
+  test_key=$(generate_test_identity "flush-f" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -39,8 +39,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "flush with --flush flag works" {
-  local test_key="$BATS_TMPDIR/test_flush_flag_rsa"
-  create_test_key "$test_key" "test_flush_flag"
+  local test_key
+  test_key=$(generate_test_identity "flush-flag" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -75,9 +75,10 @@ load "test_helper/common_setup.bash"
 
 @test "flush with corrupted record file" {
   # Create a corrupted record file
+  mkdir -p "$(dirname "$STATE_DIR/added_keys.list")"
   echo "not a valid path" > "$STATE_DIR/added_keys.list"
   echo "/nonexistent/file" >> "$STATE_DIR/added_keys.list"
-  echo "$HOME/.ssh/nonexistent_key" >> "$STATE_DIR/added_keys.list"
+  echo "$BATS_TMPDIR/identities/nonexistent.identity" >> "$STATE_DIR/added_keys.list"
   
   run main flush
   assert_success
@@ -88,11 +89,10 @@ load "test_helper/common_setup.bash"
 }
 
 @test "flush handles sequential operations gracefully" {
-  local key1="$BATS_TMPDIR/flush_seq1_rsa"
-  local key2="$BATS_TMPDIR/flush_seq2_rsa"
-  
-  create_test_key "$key1" "flush1"
-  create_test_key "$key2" "flush2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "flush-seq-1" "rsa")
+  key2=$(generate_test_identity "flush-seq-2" "rsa")
   
   run main attach "$key1"
   run main attach "$key2"
@@ -112,44 +112,44 @@ load "test_helper/common_setup.bash"
 # --- List Operations ---
 
 @test "list command shows attached keys" {
-  local test_key="$BATS_TMPDIR/test_list_key_rsa"
-  create_test_key "$test_key" "test_list_key"
+  local test_key
+  test_key=$(generate_test_identity "list-basic" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main list
   assert_success
-  assert_output --partial "test_list_key"
+  assert_output --partial "handsshake-test-list-basic"
 }
 
 @test "list with -l flag works" {
-  local test_key="$BATS_TMPDIR/test_l_flag_rsa"
-  create_test_key "$test_key" "test_l_flag"
+  local test_key
+  test_key=$(generate_test_identity "list-l" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main -l
   assert_success
-  assert_output --partial "test_l_flag"
+  assert_output --partial "handsshake-test-list-l"
 }
 
 @test "list with --list flag works" {
-  local test_key="$BATS_TMPDIR/test_list_flag_rsa"
-  create_test_key "$test_key" "test_list_flag"
+  local test_key
+  test_key=$(generate_test_identity "list-flag" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main --list
   assert_success
-  assert_output --partial "test_list_flag"
+  assert_output --partial "handsshake-test-list-flag"
 }
 
 @test "list command shows consistent output format" {
-  local test_key="$BATS_TMPDIR/format_list_rsa"
-  create_test_key "$test_key" "format_list_test"
+  local test_key
+  test_key=$(generate_test_identity "list-format" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -159,7 +159,7 @@ load "test_helper/common_setup.bash"
   
   # Account for the "Attached keys:" header
   # Should show: key-size SHA256:fingerprint comment (RSA)
-  assert_output --regexp "Attached keys:[[:space:]]+[0-9]+ SHA256:[A-Za-z0-9+/]+.*format_list_test.*\(RSA\)$"
+  assert_output --regexp "Attached keys:[[:space:]]+[0-9]+ SHA256:[A-Za-z0-9+/]+.*handsshake-test-list-format.*\(RSA\)$"
 }
 
 @test "list provides helpful message when agent is unreachable" {
@@ -178,20 +178,20 @@ load "test_helper/common_setup.bash"
 # --- Key Display Operations ---
 
 @test "keys command shows attached keys" {
-  local test_key="$BATS_TMPDIR/test_keys_key_rsa"
-  create_test_key "$test_key" "test_keys_key"
+  local test_key
+  test_key=$(generate_test_identity "keys-basic" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main keys
   assert_success
-  assert_output --partial "test_keys_key"
+  assert_output --partial "handsshake-test-keys-basic"
 }
 
 @test "keys command outputs valid SSH public key format" {
-  local test_key="$BATS_TMPDIR/format_test_rsa"
-  create_test_key "$test_key" "format_test"
+  local test_key
+  test_key=$(generate_test_identity "keys-format" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -200,38 +200,38 @@ load "test_helper/common_setup.bash"
   assert_success
   
   # Verify it's a valid SSH public key format
-  assert_output --regexp "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ format_test$"
+  assert_output --regexp "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ handsshake-test-keys-format$"
 }
 
 @test "keys with -k flag works" {
-  local test_key="$BATS_TMPDIR/test_k_flag_rsa"
-  create_test_key "$test_key" "test_k_flag"
+  local test_key
+  test_key=$(generate_test_identity "keys-k" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main -k
   assert_success
-  assert_output --partial "test_k_flag"
+  assert_output --partial "handsshake-test-keys-k"
 }
 
 @test "keys with --keys flag works" {
-  local test_key="$BATS_TMPDIR/test_keys_flag_rsa"
-  create_test_key "$test_key" "test_keys_flag"
+  local test_key
+  test_key=$(generate_test_identity "keys-flag" "rsa")
   
   run main attach "$test_key"
   assert_success
   
   run main --keys
   assert_success
-  assert_output --partial "test_keys_flag"
+  assert_output --partial "handsshake-test-keys-flag"
 }
 
 # --- Timeout Operations ---
 
 @test "timeout command should update timeouts" {
-  local test_key="$BATS_TMPDIR/test_timeout_key_rsa"
-  create_test_key "$test_key"
+  local test_key
+  test_key=$(generate_test_identity "timeout-basic" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -242,8 +242,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout with -t flag works" {
-  local test_key="$BATS_TMPDIR/test_t_flag_key_rsa"
-  create_test_key "$test_key"
+  local test_key
+  test_key=$(generate_test_identity "timeout-t" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -254,8 +254,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout with --timeout flag works" {
-  local test_key="$BATS_TMPDIR/test_timeout_flag_key_rsa"
-  create_test_key "$test_key"
+  local test_key
+  test_key=$(generate_test_identity "timeout-flag" "rsa")
   
   run main attach "$test_key"
   assert_success
@@ -266,11 +266,10 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout updates all keys correctly" {
-  local key1="$BATS_TMPDIR/timeout1_rsa"
-  local key2="$BATS_TMPDIR/timeout2_rsa"
-  
-  create_test_key "$key1" "timeout1"
-  create_test_key "$key2" "timeout2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "timeout-batch-1" "rsa")
+  key2=$(generate_test_identity "timeout-batch-2" "rsa")
   
   run main attach "$key1"
   assert_success
@@ -284,8 +283,8 @@ load "test_helper/common_setup.bash"
   
   # Verify both still exist in agent
   run main list
-  assert_output --partial "timeout1"
-  assert_output --partial "timeout2"
+  assert_output --partial "handsshake-test-timeout-batch-1"
+  assert_output --partial "handsshake-test-timeout-batch-2"
 }
 
 @test "timeout with invalid value should fail" {
@@ -314,18 +313,18 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout with some keys missing" {
-  local test_key1="$BATS_TMPDIR/timeout_key1_rsa"
-  local test_key2="$BATS_TMPDIR/timeout_key2_rsa"
-  create_test_key "$test_key1" "key1"
-  create_test_key "$test_key2" "key2"
+  local key1
+  local key2
+  key1=$(generate_test_identity "timeout-missing-1" "rsa")
+  key2=$(generate_test_identity "timeout-missing-2" "rsa")
   
-  run main attach "$test_key1"
+  run main attach "$key1"
   assert_success
-  run main attach "$test_key2"
+  run main attach "$key2"
   assert_success
   
   # Remove one key file
-  rm -f "$test_key2"
+  rm -f "$key2"
   
   run main timeout 1800
   assert_success
@@ -334,8 +333,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout handles boundary values correctly" {
-  local test_key="$BATS_TMPDIR/boundary_key_rsa"
-  create_test_key "$test_key" "boundary_test"
+  local test_key
+  test_key=$(generate_test_identity "timeout-boundary" "rsa")
   
   run main attach "$test_key"
   assert_success
