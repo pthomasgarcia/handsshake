@@ -54,7 +54,8 @@ Commands:
   flush [S]              : Flush all keys from the agent and records.
   list [X]               : List fingerprints of attached keys.
   keys [X]               : List public strings of attached keys.
-  timeout <seconds> [S]  : Update timeout for all recorded keys.
+  timeout <key> <sec>    : Update/Set timeout for a specific key.
+  timeout --all <sec>    : Update timeout for ALL recorded keys.
   cleanup [X]            : Kill agent and remove session files.
   health [X]             : Check SSH environment health.
   version [X]            : Display version information.
@@ -65,7 +66,8 @@ Arguments:
 
 Examples:
   source handsshake attach
-  handsshake health
+  handsshake timeout ~/.ssh/id_rsa 3600
+  handsshake timeout --all 7200
 EOF
     return "$exit_code"
 }
@@ -89,7 +91,14 @@ dispatch() {
         keys | -k | --keys) keys::show_public "$@" ;;
 
         # Configuration (Requires Sourcing)
-        timeout | -t | --timeout) keys::update_timeout "$@" ;;
+        timeout | -t | --timeout)
+            if [[ "$1" == "--all" ]]; then
+                shift
+                keys::update_all_timeouts "$@"
+            else
+                keys::update_timeout "$@"
+            fi
+            ;;
 
         # Maintenance
         cleanup | -c | --cleanup) agents::stop "$@" ;;

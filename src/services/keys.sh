@@ -184,20 +184,20 @@ keys::show_public() {
     ssh-add -L
 }
 
-# Usage: timeout <seconds>
-keys::update_timeout() {
+# Usage: timeout <seconds> <key_file> (Single)
+#        timeout --all <seconds> (Global)
+
+# Internal: Update Global Timeout
+keys::update_all_timeouts() {
     agents::ensure
     local new_timeout="${1:-}"
 
     if [[ -z "$new_timeout" ]]; then
-        echo "Error: timeout requires exactly one argument." >&2
+        loggers::error "timeout --all requires exactly one argument (seconds)."
         return 1
     fi
 
-    if ! [[ "$new_timeout" =~ ^[0-9]+$ ]] ||
-        [[ "$new_timeout" -eq 0 ]] ||
-        [[ "$new_timeout" -gt 86400 ]]; then
-        echo "Error: positive integer required (max 86400)." >&2
+    if ! validators::int_constraints "$new_timeout" "1" "86400" "false"; then
         return 1
     fi
 
@@ -208,49 +208,97 @@ keys::update_timeout() {
     fi
 
     # Acquire lock for record modification (Defense-in-depth)
-    (
-        flock -x 200
+    files::run_with_lock "$HANDSSHAKE_LOCK_FILE" \
+        keys::_perform_refresh "$new_timeout"
 
-        echo "Updating timeout for all recorded keys to ${new_timeout}s..."
-        local updated=0
-        local failed=0
+    return 0
+}
 
-        # Get unique keys first (remove duplicates and empty lines)
-        local unique_keys
-        unique_keys=$(sort -u "$HANDSSHAKE_RECORD_FILE" | grep -v '^$')
+keys::_perform_refresh() {
+    local new_timeout="$1"
+    echo "Updating timeout for all recorded keys to ${new_timeout}s..."
+    local updated=0
+    local failed=0
 
-        # Process keys
-        while read -r key_file; do
-            [[ -z "$key_file" ]] && continue
+    # Get unique keys first (remove duplicates and empty lines)
+    local unique_keys
+    unique_keys=$(sort -u "$HANDSSHAKE_RECORD_FILE" | grep -v '^$')
 
-            local abs_key
-            abs_key=$(readlink -f "$key_file" 2> /dev/null ||
-                realpath "$key_file" 2> /dev/null ||
-                echo "$key_file")
+    # Process keys
+    while read -r key_file; do
+        [[ -z "$key_file" ]] && continue
 
-            if [[ -f "$abs_key" ]]; then
-                # Detach first then re-attach with new timeout
-                ssh-add -d "$abs_key" > /dev/null 2>&1 || true
-                if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
-                    updated=$((updated + 1))
-                else
-                    loggers::warn "Failed to update timeout for $abs_key."
-                    failed=$((failed + 1))
-                fi
+        local abs_key
+        abs_key=$(readlink -f "$key_file" 2> /dev/null ||
+            realpath "$key_file" 2> /dev/null ||
+            echo "$key_file")
+
+        if [[ -f "$abs_key" ]]; then
+            # Detach first then re-attach with new timeout
+            ssh-add -d "$abs_key" > /dev/null 2>&1 || true
+            if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
+                updated=$((updated + 1))
             else
-                loggers::warn "Key file not found during timeout update: \
-$abs_key."
+                loggers::warn "Failed to update timeout for $abs_key."
                 failed=$((failed + 1))
             fi
-        done <<< "$unique_keys"
-
-        echo "Updated $updated keys."
-        if [[ $failed -gt 0 ]]; then
-            loggers::warn "Failed to update $failed recorded keys."
+        else
+            loggers::warn "Key file not found during timeout update: \
+$abs_key."
+            failed=$((failed + 1))
         fi
-        loggers::info "Global timeout updated to ${new_timeout}s for \
-$updated keys."
-    ) 200> "$HANDSSHAKE_LOCK_FILE"
+    done <<< "$unique_keys"
 
+    echo "Updated $updated keys."
+    if [[ $failed -gt 0 ]]; then
+        loggers::warn "Failed to update $failed recorded keys."
+    fi
+    loggers::info "Global timeout updated to ${new_timeout}s for \
+$updated keys."
+}
+
+# Usage: timeout <key_file> <seconds>
+keys::update_timeout() {
+    agents::ensure
+    local key_file="${1:-}"
+    local new_timeout="${2:-}"
+
+    if [[ -z "$key_file" ]] || [[ -z "$new_timeout" ]]; then
+        loggers::error "Usage: timeout <key_file> <seconds>"
+        return 1
+    fi
+
+    if ! validators::int_constraints "$new_timeout" "1" "86400" "false"; then
+        return 1
+    fi
+
+    if ! validators::file "$key_file" "r" 2> /dev/null; then
+        loggers::error "Invalid key file: '$key_file'"
+        return 1
+    fi
+
+    # Detach and Re-attach with new timeout
+    if ssh-add -d "$key_file" > /dev/null 2>&1; then
+        # Key was attached, now re-attach
+        if ssh-add -t "$new_timeout" "$key_file"; then
+            loggers::info "Updated timeout for '$key_file' to ${new_timeout}s."
+            echo "Timeout updated."
+            keys::_record "$key_file"
+        else
+            loggers::error "Failed to re-attach '$key_file' with new timeout."
+            return 1
+        fi
+    else
+        # Key wasn't meant to be updated or wasn't attached.
+        echo "Key wasn't attached. Attaching now..."
+        if ssh-add -t "$new_timeout" "$key_file"; then
+            loggers::info "Attached '$key_file' with timeout ${new_timeout}s."
+            echo "Key attached with timeout."
+            keys::_record "$key_file"
+        else
+            loggers::error "Failed to attach '$key_file'."
+            return 1
+        fi
+    fi
     return 0
 }

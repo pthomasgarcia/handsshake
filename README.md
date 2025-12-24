@@ -1,113 +1,100 @@
 # handsshake
 
-`handsshake` is a robust SSH agent manager designed to provide persistence, timeout features, and concurrency safety for your SSH keys. It ensures your SSH agent remains active across multiple terminal sessions and allows you to manage key lifetimes effectively.
+> A robust and persistent SSH agent manager.
+
+`handsshake` is a shell-agnostic SSH agent manager designed to eliminate agent sprawl and improve security. It ensures a single SSH agent instance persists across multiple terminal sessions, enforcing timeouts and ensuring safe concurrent operation.
 
 ## Key Features
 
-- **Persistent SSH Agent**: Reuses the same SSH agent across multiple shell sessions by tracking the agent's PID and socket, preventing agent sprawl.
-- **Key Management**: Simple commands to add, remove, and list SSH keys. Supports removing all keys at once.
-- **Configurable Timeouts**: Enforces a default timeout for keys (default 24h) to enhance security.
-- **Concurrency Safety**: Utilizes file locking (`flock`) to prevent race conditions when multiple shell instances attempt to modify the agent state or key records simultaneously.
-- **Atomic State Updates**: Ensures that updates to the agent environment files and key records are performed atomically to prevent data corruption.
+- **Persistence**: Reuses a single `ssh-agent` process across all shell instances.
+- **Concurrency**: Works seamlessly across multiple open terminal sessions.
+- **Security**: Enforces configurable TTL (Time-To-Live) for added keys.
+- **Idempotency**: Safe to source multiple times without side effects.
+- **XDG Compliance**: Follows XDG Base Directory standards for config and state.
 
-## Installation & Usage
+## Installation
 
-### Installation
-
-1.  **Download**: Clone the repository or place the `handsshake` project in a stable directory (e.g., `~/handsshake`).
-
-2.  **Shell Configuration**: To ensure the SSH agent environment variables are loaded into every shell session, source the main script in your `.bashrc` or `.zshrc`.
-
-    Add the following lines to your shell configuration file:
-
-    ```bash
-    # Set the path to the handsshake script
-    export HANDSSHAKE_HOME="$HOME/handsshake" # Adjust path as necessary
-
-    # Initialize the SSH agent and export environment variables
-    # We run 'list' to ensure the agent is started/checked without performing changes
-    source "$HANDSSHAKE_HOME/src/core/main.sh" list > /dev/null 2>&1
-
-    # Create an alias for easy management
-    # Using 'source' ensures the script runs in the current shell context
-    alias handsshake='source "$HANDSSHAKE_HOME/src/core/main.sh"'
-    ```
-
-3.  **Reload Shell**: Run `source ~/.bashrc` (or `~/.zshrc`) or restart your terminal.
-
-### Usage
-
-Once installed and aliased, you can use the `handsshake` command to manage your keys.
-
-**Add a key:**
-Adds a key to the agent with the configured default timeout.
+### 1. Clone the repository
 
 ```bash
-handsshake attach ~/.ssh/id_ed25519
+git clone https://github.com/your-username/handsshake.git ~/.handsshake
 ```
 
-**Remove a key:**
-Removes a specific key from the agent and the persistent record.
+### 2. Update Shell Configuration
+
+Add the following to your `.bashrc` or `.zshrc` to automatically initialize the agent on shell startup:
 
 ```bash
-handsshake detach ~/.ssh/id_ed25519
+# Initialize handsshake
+alias handsshake='source $HOME/.handsshake/src/core/main.sh'
+handsshake list > /dev/null 2>&1
 ```
 
-**Remove all keys:**
-Removes all keys from the agent and clears the persistent record.
+> **Note**: The `handsshake` alias uses `source` to ensure environment variables like `SSH_AUTH_SOCK` and `SSH_AGENT_PID` are correctly exported to your current shell.
+
+## Usage
+
+| Command                          | Description                                            |
+| -------------------------------- | ------------------------------------------------------ |
+| `handsshake attach [key]`        | Add a key to the agent (default: `~/.ssh/id_ed25519`). |
+| `handsshake detach <key>`        | Remove a specific key from the agent.                  |
+| `handsshake list`                | List fingerprints of all currently attached keys.      |
+| `handsshake keys`                | Show public keys of attached identities.               |
+| `handsshake flush`               | Remove all keys from the agent.                        |
+| `handsshake timeout <key> <sec>` | Update timeout for a specific key.                     |
+| `handsshake timeout --all <sec>` | Update global timeout for all tracked keys.            |
+| `handsshake health`              | Verify environment health and permissions.             |
+| `handsshake version`             | Show version information.                              |
+| `handsshake cleanup`             | Kill the agent and clean up all state files.           |
+
+### Examples
+
+**Add your default key:**
 
 ```bash
-handsshake flush
+handsshake attach
 ```
 
-**List keys:**
-Lists the keys currently managed by the agent.
+**Set a 1-hour timeout for a specific key:**
 
 ```bash
-handsshake list
+handsshake timeout ~/.ssh/id_rsa 3600
 ```
 
-**Update timeout:**
-Updates the timeout for all currently recorded keys. This removes and re-adds the keys with the new timeout value.
+**Verify setup:**
 
 ```bash
-handsshake timeout 7200
+handsshake health
 ```
 
 ## Configuration
 
-`handsshake` adheres to the **XDG Base Directory Specification**.
+Configuration is managed via environment variables or a config file located at `$XDG_CONFIG_HOME/handsshake/settings.conf`.
 
-- **Config File**: `${XDG_CONFIG_HOME:-$HOME/.config}/handsshake/settings.conf`
-- **State Directory**: `${XDG_STATE_HOME:-$HOME/.local/state}/handsshake/`
-  - **Logs**: `logs/handsshake.log`
-  - **Agent Env**: `ssh-agent.env`
-  - **Key Record**: `added_keys.list`
-
-You can modify the following variables in your `settings.conf`:
-
-- **`HANDSSHAKE_DEFAULT_TIMEOUT`**: The default duration (in seconds) that keys will remain active. Default is `86400` (24 hours).
-- **`HANDSSHAKE_VERBOSE`**: Set to `true` for detailed logging, or `false` for minimal output.
+| Variable | Default | Description |
+| மொ | ------- | ----------- |
+| `HANDSSHAKE_DEFAULT_TIMEOUT` | `86400` | Key lifetime in seconds (24 hours). |
+| `HANDSSHAKE_VERBOSE` | `false` | Enable verbose logging for debugging. |
+| `HANDSSHAKE_DEFAULT_KEY` | `~/.ssh/id_ed25519` | Default key to attach if none specified. |
 
 ## Development
 
-The project includes a `Makefile` for automated code quality checks.
+The project ensures code quality using `shellcheck` (linting), `shfmt` (formatting), and `bats` (testing).
 
-- **`make lint-shell`**: Run `shellcheck` on all scripts.
-- **`make format-shell`**: Auto-format code using `shfmt`.
-- **`make format-check`**: Check if code is properly formatted.
-- **`make check-line-length`**: Ensure no lines exceed 80 characters.
-- **`make ci`**: Run all linting and line-length checks.
+To run the full CI suite locally:
 
-To run tests, use [BATS](https://github.com/bats-core/bats-core):
 ```bash
-bats test/
+make ci
 ```
 
-## Directory Structure
+### Requirements
 
-- **`src/core/`**: Main entry point (`main.sh`).
-- **`src/services/`**: Service logic modules (key management, agent lifecycle).
-- **`src/lib/`**: Shared library scripts (configuration, constants).
-- **`src/util/`**: Utility modules (file operations, logging, validation).
-- **`test/`**: BATS test suite.
+- `bash` 4.4+
+- `flock` (util-linux)
+- `ssh-agent`
+- `make` (for development)
+- `bats` (for testing)
+
+## License
+
+MIT &copy; 2025 handsshake contributors.

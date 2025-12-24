@@ -4,43 +4,63 @@ load "test_helper/bats-support/load.bash"
 load "test_helper/bats-assert/load.bash"
 load "test_helper/common_setup.bash"
 
-@test "timeout command should update timeouts" {
+@test "timeout --all should update all timeouts" {
   local test_key
   test_key=$(generate_test_identity "timeout-basic" "rsa")
   
   run main attach "$test_key"
   assert_success
   
-  run main timeout 1800
+  run main timeout --all 1800
   assert_success
   assert_output --partial "Updated 1 keys."
 }
 
-@test "timeout with -t flag works" {
+@test "timeout <key> <sec> should update specific key" {
+  local test_key
+  test_key=$(generate_test_identity "timeout-single" "rsa")
+
+  run main attach "$test_key"
+  assert_success
+
+  # Update specific key
+  run main timeout "$test_key" 3600
+  assert_success
+  assert_output --partial "Timeout updated."
+
+  # Verify it's still attached (we can't easily query timeout from ssh-add -l
+  # without parsing)
+  run main list
+  assert_output --partial "handsshake-test-timeout-single"
+}
+
+@test "timeout <key> <sec> should attach unattached key" {
+   local test_key
+   test_key=$(generate_test_identity "timeout-attach" "rsa")
+
+   # Don't attach first
+
+   run main timeout "$test_key" 3600
+   assert_success
+   assert_output --partial "Key attached with timeout."
+   
+   run main list
+   assert_output --partial "handsshake-test-timeout-attach"
+}
+
+@test "timeout with -t flag works as --all" {
   local test_key
   test_key=$(generate_test_identity "timeout-t" "rsa")
   
   run main attach "$test_key"
   assert_success
   
-  run main -t 1800
+  run main -t --all 1800
   assert_success
   assert_output --partial "Updated 1 keys."
 }
 
-@test "timeout with --timeout flag works" {
-  local test_key
-  test_key=$(generate_test_identity "timeout-flag" "rsa")
-  
-  run main attach "$test_key"
-  assert_success
-  
-  run main --timeout 1800
-  assert_success
-  assert_output --partial "Updated 1 keys."
-}
-
-@test "timeout updates all keys correctly" {
+@test "timeout updates all keys correctly with --all" {
   local key1
   local key2
   key1=$(generate_test_identity "timeout-batch-1" "rsa")
@@ -52,7 +72,7 @@ load "test_helper/common_setup.bash"
   assert_success
   
   # Update timeouts
-  run main timeout 3600
+  run main timeout --all 3600
   assert_success
   assert_output --partial "Updated 2 keys"
   
@@ -63,11 +83,11 @@ load "test_helper/common_setup.bash"
 }
 
 @test "timeout with invalid value should fail" {
-  run main timeout -5
+  run main timeout --all -5
   assert_failure
   assert_output --partial "positive integer required"
   
-  run main timeout "not_a_number"
+  run main timeout --all "not_a_number"
   assert_failure
   assert_output --partial "integer required"
 }
@@ -75,19 +95,25 @@ load "test_helper/common_setup.bash"
 @test "timeout without argument should fail" {
   run main timeout
   assert_failure
-  assert_output --partial "requires exactly one argument"
+  assert_output --partial "Usage: timeout <key_file> <seconds>"
 }
 
-@test "timeout with empty record file" {
+@test "timeout --all without argument should fail" {
+  run main timeout --all
+  assert_failure
+  assert_output --partial "timeout --all requires exactly one argument"
+}
+
+@test "timeout --all with empty record file" {
   # Ensure record file is empty
   : > "$STATE_DIR/added_keys.list"
   
-  run main timeout 3600
+  run main timeout --all 3600
   assert_success
   assert_output --partial "No keys currently recorded to update"
 }
 
-@test "timeout with some keys missing" {
+@test "timeout --all with some keys missing" {
   local key1
   local key2
   key1=$(generate_test_identity "timeout-missing-1" "rsa")
@@ -101,13 +127,13 @@ load "test_helper/common_setup.bash"
   # Remove one key file
   rm -f "$key2"
   
-  run main timeout 1800
+  run main timeout --all 1800
   assert_success
   # Should report 1 key updated (key1)
   assert_output --partial "Updated 1 keys"
 }
 
-@test "timeout handles boundary values correctly" {
+@test "timeout --all handles boundary values correctly" {
   local test_key
   test_key=$(generate_test_identity "timeout-boundary" "rsa")
   
@@ -115,20 +141,20 @@ load "test_helper/common_setup.bash"
   assert_success
   
   # Test minimum reasonable timeout (1 second)
-  run main timeout 1
+  run main timeout --all 1
   assert_success
   
   # Test maximum allowed timeout (86400 seconds = 1 day)
-  run main timeout 86400
+  run main timeout --all 86400
   assert_success
   
   # Test just over maximum should fail
-  run main timeout 86401
+  run main timeout --all 86401
   assert_failure
   assert_output --partial "max 86400"
   
   # Test zero should fail (needs positive integer)
-  run main timeout 0
+  run main timeout --all 0
   assert_failure
   assert_output --partial "positive integer"
 }
