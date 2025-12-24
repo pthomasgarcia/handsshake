@@ -1,13 +1,13 @@
-name: ShellCheck
+name: CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
 
 jobs:
-  lint:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -15,8 +15,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck bats
 
       - name: Install shfmt
         run: |
@@ -25,11 +27,5 @@ jobs:
           chmod +x shfmt
           sudo mv shfmt /usr/local/bin/
 
-      - name: Run ShellCheck
-        run: make lint-shell
-
-      - name: Check Line Length
-        run: make check-line-length
-
-      - name: Check Formatting
-        run: make format-check
+      - name: Run CI Pipeline
+        run: make ci
