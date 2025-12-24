@@ -68,7 +68,7 @@ detach() {
     ensure_agent
     local key_file="${1:-}"
 
-    if [[ -z "$key_file" ]]; then
+    if [[ -z "$key_file" ]] || [[ "$#" -ne 1 ]]; then
         echo "Error: detach requires exactly one fingerprint/key_file." >&2
         return 1
     fi
@@ -79,6 +79,17 @@ detach() {
         log_info "Detached key '$key_file' from agent."
         echo "Key '$key_file' detached."
     else
+        # If it failed, it might be because the file is missing,
+        # but we should still check if it was in our record
+        if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] &&
+            grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
+            log_warn "Key '$key_file' file missing but was in record. \
+Cleaning up record."
+            echo "Key '$key_file' detached."
+            detach_record "$key_file"
+            return 0 # Return success if we at least cleaned the record
+        fi
+
         log_warn "Key '$key_file' was not in the agent or file missing."
         echo "Warning: Key '$key_file' not found in agent." >&2
         detach_record "$key_file"
@@ -140,6 +151,7 @@ timeout() {
     fi
 
     if ! [[ "$new_timeout" =~ ^[0-9]+$ ]] ||
+        [[ "$new_timeout" -eq 0 ]] ||
         [[ "$new_timeout" -gt 86400 ]]; then
         echo "Error: positive integer required (max 86400)." >&2
         return 1
