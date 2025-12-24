@@ -66,9 +66,9 @@ get_key_fingerprint() {
 # Usage: attach [key_file]
 attach() {
     ensure_agent
-    local key_file="${1:-$HOME/.ssh/id_ed25519}"
+    local key_file="${1:-$HANDSSHAKE_DEFAULT_KEY}"
 
-    if [[ "$key_file" == "$HOME/.ssh/id_ed25519" ]] && [[ -z "${1:-}" ]]; then
+    if [[ "$key_file" == "$HANDSSHAKE_DEFAULT_KEY" ]] && [[ -z "${1:-}" ]]; then
         echo "No key specified. Using default: $key_file"
     fi
 

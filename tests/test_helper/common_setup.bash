@@ -4,24 +4,39 @@
 # for all handsshake BATS tests.
 
 # Record the real HOME before we start mocking it
-# This must be done at the top level to capture the actual environment
+# We use getent or eval to find the actual home directory from the OS
 if [[ -z "${REAL_HOME_FOR_GUARD:-}" ]]; then
-    export REAL_HOME_FOR_GUARD="$HOME"
+    if command -v getent >/dev/null 2>&1; then
+        REAL_HOME_FOR_GUARD=$(getent passwd "$(whoami)" | cut -d: -f6)
+    fi
+    # Fallback to eval expansion if getent is missing
+    : "${REAL_HOME_FOR_GUARD:=$(eval echo "~$(whoami)")}"
+    export REAL_HOME_FOR_GUARD
 fi
 
 # Isolation guard function
 check_isolation() {
-    # CRITICAL GUARD: Ensure we are not using the real HOME
+    # 1. CRITICAL GUARD: Ensure we are not using the real HOME
     if [[ "$HOME" == "$REAL_HOME_FOR_GUARD" ]]; then
-        echo "FATAL ERROR: HOME is not properly mocked! Isolation failed." >&2
+        echo "FATAL SECURITY ERROR: HOME is not properly mocked! Isolation failed." >&2
+        echo "Current HOME: $HOME" >&2
+        echo "Real HOME recorded: $REAL_HOME_FOR_GUARD" >&2
         return 1
     fi
 
-    # Further safety check: ensure we are in a temporary location
+    # 2. PATTERN GUARD: ensure we are in a temporary location
     if [[ "$HOME" != *"/handsshake-tests-"* ]]; then
-        echo "FATAL ERROR: HOME does not appear to be a test-specific directory!" >&2
+        echo "FATAL SECURITY ERROR: HOME does not appear to be a test-specific directory!" >&2
+        echo "Current HOME: $HOME" >&2
         return 1
     fi
+
+    # 3. ROOT GUARD: Ensure we aren't at the system root
+    if [[ "$HOME" == "/" ]] || [[ "$HOME" == "/root" ]] || [[ "$HOME" == "/home" ]]; then
+        echo "FATAL SECURITY ERROR: HOME is pointing to a system directory!" >&2
+        return 1
+    fi
+
     return 0
 }
 
@@ -30,6 +45,20 @@ create_test_key() {
     local key_path="$1"
     local comment="${2:-}"
     local -a key_args=()
+
+    # SECONDARY SAFETY GUARD: Never write to real HOME
+    local resolved_path
+    resolved_path=$(realpath "$key_path" 2>/dev/null || echo "$key_path")
+    if [[ "$resolved_path" == "$REAL_HOME_FOR_GUARD"* ]]; then
+        echo "FATAL SECURITY ERROR: create_test_key attempted to write to real HOME: $resolved_path" >&2
+        exit 100
+    fi
+    
+    # Path depth guard: ensure it's not a root-level or dangerously short path
+    if [[ "$resolved_path" == "/etc/"* ]] || [[ "$resolved_path" == "/usr/"* ]] || [[ "$resolved_path" == "/var/"* ]]; then
+        echo "FATAL SECURITY ERROR: create_test_key attempted to write to system directory: $resolved_path" >&2
+        exit 102
+    fi
 
     # Determine key type from filename pattern
     local base_name
@@ -81,6 +110,18 @@ verify_key_not_recorded() {
     local key_path="$1"
     run grep -Fq "$key_path" "$STATE_DIR/added_keys.list"
     assert_failure
+}
+
+safe_cp() {
+    local src="$1"
+    local dest="$2"
+    local resolved_dest
+    resolved_dest=$(realpath "$dest" 2>/dev/null || echo "$dest")
+    if [[ "$resolved_dest" == "$REAL_HOME_FOR_GUARD"* ]]; then
+        echo "FATAL SECURITY ERROR: safe_cp attempted to write to real HOME: $resolved_dest" >&2
+        exit 101
+    fi
+    cp "$src" "$dest"
 }
 
 # Helper for permission tests

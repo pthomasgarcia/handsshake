@@ -16,7 +16,7 @@ teardown() { :; }
     
     run check_isolation
     assert_failure
-    assert_output --partial "FATAL ERROR: HOME is not properly mocked"
+    assert_output --partial "FATAL SECURITY ERROR: HOME is not properly mocked"
 }
 
 @test "isolation guard detects non-test temporary directory" {

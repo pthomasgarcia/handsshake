@@ -56,13 +56,16 @@ load "test_helper/common_setup.bash"
   local test_key="$BATS_TMPDIR/test_default_key_ed25519"
   create_test_key "$test_key" "default_key_test"
   
-  cp "$test_key" "$HOME/.ssh/id_ed25519"
-  cp "$test_key.pub" "$HOME/.ssh/id_ed25519.pub"
+  # Configure handsshake to use a unique test name instead of id_ed25519
+  export HANDSSHAKE_DEFAULT_KEY="$HOME/.ssh/handsshake_test_default_key"
+  
+  safe_cp "$test_key" "$HANDSSHAKE_DEFAULT_KEY"
+  safe_cp "$test_key.pub" "${HANDSSHAKE_DEFAULT_KEY}.pub"
   
   run main attach
   
   assert_success
-  assert_output --partial "Key '$HOME/.ssh/id_ed25519' attached"
+  assert_output --partial "Key '$HANDSSHAKE_DEFAULT_KEY' attached"
 }
 
 @test "attach Ed25519 key specifically" {

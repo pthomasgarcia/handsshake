@@ -22,6 +22,7 @@ load_config() {
     # 2. Set Defaults (XDG-aware)
     HANDSSHAKE_DEFAULT_TIMEOUT="${HANDSSHAKE_DEFAULT_TIMEOUT:-86400}"
     HANDSSHAKE_VERBOSE="${HANDSSHAKE_VERBOSE:-true}"
+    HANDSSHAKE_DEFAULT_KEY="${HANDSSHAKE_DEFAULT_KEY:-$HOME/.ssh/id_ed25519}"
 
     # these are state files, should be in XDG_STATE_HOME
     : "${HANDSSHAKE_LOG_FILE:=$xdg_state_home/logs/handsshake.log}"
