@@ -1,69 +1,82 @@
 SHELL := /usr/bin/env bash
 
-# Flags kept in one place to match CI exactly
-# -i 4 = 4 spaces per indent for normal blocks
-# -ci = indent switch cases
-# -sr = simplify redirects
-# -ln bash = enforce Bash mode
-# -kp = keep existing indentation on continuation lines
-SHFMT_FLAGS := -i 4 -ci -sr -ln bash
-SHELLCHECK_FLAGS := -S style -x
+# --- Variables ---
+# Finds all relevant shell files, excluding the test helper directory
+SHELL_FILES       := $(shell git ls-files '*.sh' '*.bash' | grep -v 'tests/test_helper')
+ALL_SHELL_FILES   := $(shell git ls-files '*.sh' '*.bash' '*.bats' | grep -v 'tests/test_helper')
 
-.PHONY: lint-shell format-shell format-check check-line-length ci tools
+# Flags
+SHFMT_FLAGS      := -i 4 -ci -sr -ln bash
+SHELLCHECK_FLAGS := -S style -x -s bash
+COVERAGE_DIR     := coverage
+KCOV_FLAGS       := --include-pattern=$(PWD) --exclude-pattern=tests/,/usr/
 
-# Optional: verify tools exist locally
+# --- Targets ---
+.PHONY: lint-shell format-shell format-check check-line-length ci tools test coverage clean
+
+# Verify tools exist locally
 tools:
 	@command -v shellcheck >/dev/null || { echo "shellcheck not found"; exit 1; }
 	@command -v shfmt >/dev/null || { echo "shfmt not found"; exit 1; }
+	@command -v bats >/dev/null || { echo "bats not found"; exit 1; }
 
+# Run standard Bats tests
+test: tools
+	@echo "Running tests..."
+	bats tests/
+
+# Generate coverage report
+coverage: tools
+	@rm -rf $(COVERAGE_DIR)
+	@mkdir -p $(COVERAGE_DIR)
+	@echo "Running tests with coverage (kcov)..."
+	kcov $(KCOV_FLAGS) $(COVERAGE_DIR) bats tests/
+	@echo "Coverage report: $(COVERAGE_DIR)/index.html"
+
+# Linting
 lint-shell: tools
-	@mapfile -t files < <(git ls-files '*.sh'); \
-	if [ "$${#files[@]}" -eq 0 ]; then \
+	@if [ -z "$(ALL_SHELL_FILES)" ]; then \
 		echo "No shell scripts found."; \
 	else \
-		shellcheck $(SHELLCHECK_FLAGS) "$${files[@]}"; \
+		shellcheck $(SHELLCHECK_FLAGS) $(ALL_SHELL_FILES); \
+		echo "ShellCheck passed."; \
 	fi
 
-# Check line length (80 chars limit)
-check-line-length: tools
+# Line length check (80 chars)
+check-line-length:
 	@echo "Checking line lengths (max 80 characters)..."
-	@mapfile -t files < <(git ls-files '*.sh' | grep -v 'test/test_helper'); \
-	if [ "$${#files[@]}" -eq 0 ]; then \
-		echo "No shell scripts found."; \
-	else \
-		errors=0; \
-		for file in "$${files[@]}"; do \
-			long_lines=$$(grep -n ".\{81,\}" "$$file"); \
-			if [ -n "$$long_lines" ]; then \
-				echo "File $$file has lines exceeding 80 characters:"; \
-				echo "$$long_lines"; \
-				errors=1; \
-			fi; \
-		done; \
-		if [ "$$errors" -eq 1 ]; then \
-			exit 1; \
+	@errors=0; \
+	for file in $(ALL_SHELL_FILES); do \
+		long_lines=$$(grep -n ".\{81,\}" "$$file"); \
+		if [ -n "$$long_lines" ]; then \
+			echo "File $$file has lines exceeding 80 characters:"; \
+			echo "$$long_lines"; \
+			errors=1; \
 		fi; \
-		echo "All lines are within 80 characters."; \
-	fi
+	done; \
+	[ $$errors -eq 0 ] || exit 1
+	@echo "Line length check passed."
 
-# Check formatting (no write)
+# Check formatting (no write) - EXCLUDE BATS
 format-check: tools
-	@mapfile -t files < <(git ls-files '*.sh' | grep -v 'test/test_helper'); \
-	if [ "$${#files[@]}" -eq 0 ]; then \
+	@if [ -z "$(SHELL_FILES)" ]; then \
 		echo "No shell scripts found."; \
 	else \
-		shfmt -d $(SHFMT_FLAGS) "$${files[@]}"; \
+		shfmt -d $(SHFMT_FLAGS) $(SHELL_FILES); \
 	fi
 
-# Auto-format locally
+# Auto-format locally - EXCLUDE BATS
 format-shell: tools
-	@mapfile -t files < <(git ls-files '*.sh' | grep -v 'test/test_helper'); \
-	if [ "$${#files[@]}" -eq 0 ]; then \
-		echo "No shell scripts found."; \
+	@if [ -z "$(SHELL_FILES)" ]; then \
+		echo "No files to format."; \
 	else \
-		shfmt -w $(SHFMT_FLAGS) "$${files[@]}"; \
+		shfmt -w $(SHFMT_FLAGS) $(SHELL_FILES); \
+		echo "Formatting complete."; \
 	fi
+
+clean:
+	rm -rf $(COVERAGE_DIR)
 
 # CI target
-ci: lint-shell check-line-length format-check
-	@echo "CI checks passed."
+ci: lint-shell check-line-length format-check test
+	@echo "All CI checks passed."

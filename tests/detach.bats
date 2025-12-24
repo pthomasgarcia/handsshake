@@ -91,15 +91,14 @@ load "test_helper/common_setup.bash"
   create_test_key "$test_key" "relative-test"
   
   # Change to identities directory and use relative path
-  cd "$identities_dir"
-  run main attach "./hsh-test-relative.identity"
-  assert_success
-  
-  run main detach "./hsh-test-relative.identity"
-  assert_success
-  
-  # Change back to original directory
-  cd - > /dev/null
+  (
+      cd "$identities_dir" || exit 1
+      run main attach "./hsh-test-relative.identity"
+      assert_success
+      
+      run main detach "./hsh-test-relative.identity"
+      assert_success
+  )
 }
 
 @test "detach with stale record (key in record but not agent)" {
@@ -168,4 +167,15 @@ load "test_helper/common_setup.bash"
   
   assert_failure
   assert_output --partial "not found in agent"
+}
+
+@test "detach with multiple arguments should fail" {
+  local key1
+  local key2
+  key1=$(generate_test_identity "multi-detach-1" "rsa")
+  key2=$(generate_test_identity "multi-detach-2" "rsa")
+  
+  run main detach "$key1" "$key2"
+  assert_failure
+  assert_output --partial "requires exactly one fingerprint"
 }

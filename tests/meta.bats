@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2030,SC2031
 
 load "test_helper/bats-support/load.bash"
 load "test_helper/bats-assert/load.bash"
@@ -28,7 +29,8 @@ teardown() { :; }
     
     run check_isolation
     assert_failure
-    assert_output --partial "HOME does not appear to be a test-specific directory"
+    assert_output --partial \
+        "HOME does not appear to be a test-specific directory"
 }
 
 @test "isolation guard passes with correct temporary directory" {

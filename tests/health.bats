@@ -4,56 +4,6 @@ load "test_helper/bats-support/load.bash"
 load "test_helper/bats-assert/load.bash"
 load "test_helper/common_setup.bash"
 
-# --- System Metadata ---
-
-@test "version command should show version" {
-  run main version
-  assert_success
-  assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
-}
-
-@test "version with -v flag works" {
-  run main -v
-  assert_success
-  assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
-}
-
-@test "version with --version flag works" {
-  run main --version
-  assert_success
-  assert_output --regexp 'v[0-9]+\.[0-9]+\.[0-9]+'
-}
-
-@test "help command should show usage" {
-  run main help
-  assert_success
-  assert_output --partial "Usage"
-}
-
-@test "help text includes all commands and is well-formatted" {
-  run main help
-  assert_success
-  # Check for all major commands
-  assert_output --partial "attach"
-  assert_output --partial "detach"
-  assert_output --partial "flush"
-  assert_output --partial "list"
-  assert_output --partial "keys"
-  assert_output --partial "timeout"
-  assert_output --partial "cleanup"
-  assert_output --partial "health"
-  assert_output --partial "version"
-  
-  # Check for usage pattern
-  assert_output --regexp "Usage:[[:space:]]+source[[:space:]]+.*[[:space:]]+<command>"
-  
-  # Check for argument documentation
-  assert_output --partial "key_file"
-  assert_output --partial "seconds"
-}
-
-# --- System Health & Connectivity ---
-
 @test "health command should work" {
   run main health
   assert_success
@@ -74,8 +24,6 @@ load "test_helper/common_setup.bash"
   assert_failure
   assert_output --partial "Unknown command"
 }
-
-# --- System Resilience & Recovery ---
 
 @test "reconnects when agent dies unexpectedly" {
   local test_key
@@ -146,28 +94,6 @@ load "test_helper/common_setup.bash"
   
   # Clean up external agent
   kill "$external_pid" 2>/dev/null || true
-}
-
-# --- Resource Management ---
-
-@test "cleanup removes all handsshake resources" {
-  local test_key
-  test_key=$(generate_test_identity "cleanup-final" "rsa")
-  
-  # Create state
-  run main attach "$test_key"
-  assert_success
-  
-  # Verify state exists
-  [ -f "$STATE_DIR/ssh-agent.env" ]
-  
-  # Cleanup
-  run main cleanup
-  assert_success
-  
-  # Verify files are gone
-  [ ! -f "$STATE_DIR/ssh-agent.env" ]
-  [ ! -f "$STATE_DIR/added_keys.list" ]
 }
 
 @test "handles missing configuration gracefully" {

@@ -101,7 +101,8 @@ load "test_helper/common_setup.bash"
 }
 
 @test "attach preserves key comment in agent" {
-  local comment="user@test-$(date +%s)"
+  local comment
+  comment="user@test-$(date +%s)"
   local identities_dir="$BATS_TMPDIR/identities"
   mkdir -p "$identities_dir"
   local test_key="$identities_dir/hsh-test-comment.identity"
@@ -173,4 +174,12 @@ load "test_helper/common_setup.bash"
   
   # 6. Verify removal from records
   verify_key_not_recorded "$test_key"
+}
+
+@test "attach with extra arguments should fail gracefully" {
+  local test_key
+  test_key=$(generate_test_identity "extra-args" "rsa")
+  
+  run main attach "$test_key" "extra_argument"
+  [[ "$status" -ne 127 ]]
 }
