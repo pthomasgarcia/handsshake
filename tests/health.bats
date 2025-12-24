@@ -34,6 +34,7 @@ load "test_helper/common_setup.bash"
   
   # Kill the agent process
   if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
+    # shellcheck disable=SC1091
     source "$STATE_DIR/ssh-agent.env"
     kill "$SSH_AGENT_PID"
     
@@ -54,9 +55,10 @@ load "test_helper/common_setup.bash"
   run main attach "$test_key"
   assert_success
   
-  for i in {1..2}; do
+  for _ in {1..2}; do
     # Kill agent without cleanup
     if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
+      # shellcheck disable=SC1091
       source "$STATE_DIR/ssh-agent.env"
       kill "$SSH_AGENT_PID" 2>/dev/null || true
     fi
@@ -74,8 +76,11 @@ load "test_helper/common_setup.bash"
   agent_output=$(ssh-agent -s)
   local external_sock
   local external_pid
-  external_sock=$(echo "$agent_output" | sed -n 's/SSH_AUTH_SOCK=\([^;]*\);.*/\1/p')
-  external_pid=$(echo "$agent_output" | sed -n 's/SSH_AGENT_PID=\([^;]*\);.*/\1/p')
+  # Verify we have new agent details
+  external_sock=$(echo "$agent_output" | \
+      sed -n 's/SSH_AUTH_SOCK=\([^;]*\);.*/\1/p')
+  external_pid=$(echo "$agent_output" | \
+      sed -n 's/SSH_AGENT_PID=\([^;]*\);.*/\1/p')
   
   # Force environment to use external agent
   export SSH_AUTH_SOCK="$external_sock"

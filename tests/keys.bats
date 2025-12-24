@@ -27,7 +27,8 @@ load "test_helper/common_setup.bash"
   assert_success
   
   # Verify it's a valid SSH public key format
-  assert_output --regexp "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ handsshake-test-keys-format$"
+  assert_output --regexp \
+      "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ handsshake-test-keys-format$"
 }
 
 @test "keys with -k flag works" {

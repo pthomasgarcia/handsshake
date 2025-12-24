@@ -14,18 +14,21 @@ load "test_helper/bats-assert/load.bash"
     # 3. VERIFY: The setup function should have unset these
     # Note: common_setup.bash defines 'setup', which bats runs before each test.
     # However, 'setup' also sets NEW values for these variables.
-    # We want to ensure that the *internal* logic of config.sh didn't pick up the OLD values
-    # before they were overwritten by the test harness, OR that the test harness correctly
+    # We want to ensure that the *internal* logic of config.sh didn't pick up
+    # the OLD values before they were overwritten by the test harness, OR that
+    # the test harness correctly ignores them.
     # overwrote them.
     
-    # Actually, the critical thing is that config.sh (loaded by main.sh) does not see the poisoned values.
+    # Actually, the critical thing is that config.sh (loaded by main.sh) does
+    # not see the poisoned values. It should see the ISOLATED values.
     # setup() sources main.sh.
     
-    # Run the setup function explicitly (Bats does this, but we want to be sure of the state)
+    # Run the setup function explicitly (Bats does this, but we want to be
+    # sure of the state) just in case.
     setup
     
-    # Check that the variables now point to the BATS_TMPDIR, NOT the poisoned path
-    # Check that the variables now point to the BATS_TMPDIR, NOT the poisoned path
+    # Check that the variables now point to the BATS_TMPDIR, NOT the poisoned
+    # path and are isolated.
     [[ "$HANDSSHAKE_AGENT_ENV_FILE" != "/tmp/POISONED_ENV_FILE" ]]
 
 

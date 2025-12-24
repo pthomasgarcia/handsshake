@@ -52,12 +52,15 @@ load "test_helper/common_setup.bash"
   
   # Account for the "Attached keys:" header
   # Should show: key-size SHA256:fingerprint comment (RSA)
-  assert_output --regexp "Attached keys:[[:space:]]+[0-9]+ SHA256:[A-Za-z0-9+/]+.*handsshake-test-list-format.*\(RSA\)$"
+  assert_output --regexp \
+      "Attached keys:[[:space:]]+[0-9]+ SHA256:[A-Za-z0-9+/]+" \
+      ".*handsshake-test-list-format.*\(RSA\)$"
 }
 
 @test "list provides helpful message when agent is unreachable" {
   # Kill agent without cleanup
   if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
+    # shellcheck disable=SC1091
     source "$STATE_DIR/ssh-agent.env"
     kill "$SSH_AGENT_PID" 2>/dev/null || true
   fi

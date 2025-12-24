@@ -25,7 +25,8 @@ load "test_helper/common_setup.bash"
   assert_output --partial "version"
   
   # Check for usage pattern
-  assert_output --regexp "Usage:[[:space:]]+source[[:space:]]+.*[[:space:]]+<command>"
+  assert_output --regexp \
+      "Usage:[[:space:]]+source[[:space:]]+.*[[:space:]]+<command>"
   
   # Check for argument documentation
   assert_output --partial "key_file"

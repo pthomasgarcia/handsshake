@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2154
 
 # tests/lib/agent.bash
 
@@ -17,6 +18,7 @@ verify_agent_empty() {
         # shellcheck source=/dev/null
         source "$STATE_DIR/ssh-agent.env"
         run ssh-add -l
+        # shellcheck disable=SC2154
         [[ "$status" -ne 0 ]]
     fi
 }

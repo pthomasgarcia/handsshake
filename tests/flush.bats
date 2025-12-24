@@ -76,7 +76,8 @@ load "test_helper/common_setup.bash"
   mkdir -p "$(dirname "$STATE_DIR/added_keys.list")"
   echo "not a valid path" > "$STATE_DIR/added_keys.list"
   echo "/nonexistent/file" >> "$STATE_DIR/added_keys.list"
-  echo "$BATS_TMPDIR/identities/nonexistent.identity" >> "$STATE_DIR/added_keys.list"
+  echo "$BATS_TMPDIR/identities/nonexistent.identity" >> \
+      "$STATE_DIR/added_keys.list"
   
   run main flush
   assert_success
