@@ -316,6 +316,115 @@ load "test_helper/common_setup.bash"
   [[ "$status" -ne 127 ]]  # Not command not found
 }
 
+@test "handles rapid concurrent operations without corruption" {
+  local iterations=5
+  local pids=()
+  
+  # Launch multiple concurrent attach operations
+  # We use a subshell to avoid 'main' environment interference
+  for i in $(seq 1 $iterations); do
+    (
+      local key="$BATS_TMPDIR/race_key_${i}_rsa"
+      create_test_key "$key" "race_$i"
+      # We must source common_setup manually in subshell to have environment
+      # but BATS handles it differently. Instead we call the script directly
+      # with HANDSSHAKE_TEST=true or just trust our global lock in main.sh
+      # Since we source 'main' in setup, we call it here.
+      main attach "$key" >/dev/null 2>&1
+    ) &
+    pids+=($!)
+  done
+  
+  # Wait for all operations
+  for pid in "${pids[@]}"; do
+    wait "$pid"
+  done
+  
+  # Verify final state integrity
+  run main list
+  assert_success
+  
+  # Record file should have exactly $iterations lines
+  local record_count
+  record_count=$(wc -l < "$STATE_DIR/added_keys.list")
+  assert_equal "$record_count" "$iterations"
+  
+  # Agent should have all keys
+  for i in $(seq 1 $iterations); do
+    assert_output --partial "race_$i"
+  done
+}
+
+@test "rejects malformed command injection attempts" {
+  # Test various injection patterns
+  # We use a unique string that wouldn't normally appear in a path
+  local secret="INJECTED_$(date +%s)"
+  local injections=(
+    "key; echo $secret"
+    "key && echo $secret"
+    "key | echo $secret"
+    "key\$(echo $secret)"
+    "key\`echo $secret\`"
+  )
+  
+  for injection in "${injections[@]}"; do
+    run main attach "$injection"
+    # Should fail because file doesn't exist
+    assert_failure
+    # We check that the secret was not executed. 
+    # If it was executed, it would be a separate line or the only output.
+    # If it's just echoed back as part of the "Path '...'" error, that's fine.
+    # However, 'refute_output' is global. Let's check that no line is EXACTLY the secret.
+    local line
+    for line in "${lines[@]}"; do
+        [[ "$line" == "$secret" ]] && return 1
+    done
+  done
+  return 0
+}
+
+@test "prevents privilege escalation through path traversal" {
+  # Try to access files outside test directory via relative path
+  local malicious_key="../../../etc/passwd"
+  
+  run main attach "$malicious_key"
+  assert_failure
+  # The output should indicate it's missing (because realpath/readlink won't find it
+  # relative to our mock home or it's just not a valid path for us)
+  assert_output --partial "is missing or not readable"
+}
+
+@test "handles extreme timeout values correctly" {
+  local test_key="$BATS_TMPDIR/extreme_timeout_rsa"
+  create_test_key "$test_key" "extreme_test"
+  
+  run main attach "$test_key"
+  assert_success
+  
+  # Test extremely large timeout (should be rejected by our validation)
+  run main timeout 999999999
+  assert_failure
+  assert_output --partial "max 86400"
+}
+
+@test "continues operation when SSH_AUTH_SOCK is corrupted" {
+  local test_key="$BATS_TMPDIR/corrupt_sock_rsa"
+  create_test_key "$test_key" "corrupt_test"
+  
+  # Attach key first
+  run main attach "$test_key"
+  assert_success
+  
+  # Corrupt the socket path in current environment
+  export SSH_AUTH_SOCK="/tmp/nonexistent-socket-$(date +%s)"
+  
+  # Try operations - ensure_agent should detect invalid socket and fix it
+  # by loading from the env file or restarting.
+  run main list
+  assert_success
+  assert_output --partial "corrupt_test"
+}
+
 @test "-- separator allows commands that look like flags" {
   # Test that -- allows --help to be treated as a command
   # The current implementation doesn't have a --help command

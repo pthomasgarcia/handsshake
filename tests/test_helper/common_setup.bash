@@ -9,6 +9,22 @@ if [[ -z "${REAL_HOME_FOR_GUARD:-}" ]]; then
     export REAL_HOME_FOR_GUARD="$HOME"
 fi
 
+# Isolation guard function
+check_isolation() {
+    # CRITICAL GUARD: Ensure we are not using the real HOME
+    if [[ "$HOME" == "$REAL_HOME_FOR_GUARD" ]]; then
+        echo "FATAL ERROR: HOME is not properly mocked! Isolation failed." >&2
+        return 1
+    fi
+
+    # Further safety check: ensure we are in a temporary location
+    if [[ "$HOME" != *"/handsshake-tests-"* ]]; then
+        echo "FATAL ERROR: HOME does not appear to be a test-specific directory!" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Helper functions
 create_test_key() {
     local key_path="$1"
@@ -86,15 +102,7 @@ setup() {
     # Use temporary HOME directory to avoid touching real files
     export HOME="$BATS_TMPDIR/home"
 
-    # CRITICAL GUARD: Ensure we are not using the real HOME
-    if [[ "$HOME" == "$REAL_HOME_FOR_GUARD" ]]; then
-        echo "FATAL ERROR: HOME is not properly mocked! Isolation failed." >&2
-        exit 1
-    fi
-
-    # Further safety check: ensure we are in a temporary location
-    if [[ "$HOME" != *"/handsshake-tests-"* ]]; then
-        echo "FATAL ERROR: HOME does not appear to be a test-specific directory!" >&2
+    if ! check_isolation; then
         exit 1
     fi
 

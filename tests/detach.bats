@@ -108,9 +108,64 @@ load "test_helper/common_setup.bash"
   echo "$test_key" >> "$STATE_DIR/added_keys.list"
   
   run main detach "$test_key"
-  # Should still try to remove and clean up record
+  # Should succeed because it successfully "healed" the record state
   assert_success
   assert_output --partial "detached"
   
   verify_key_not_recorded "$test_key"
+}
+
+@test "detach preserves agent state for remaining keys" {
+  local key1="$BATS_TMPDIR/preserve1_rsa"
+  local key2="$BATS_TMPDIR/preserve2_rsa"
+  
+  create_test_key "$key1" "preserve_test_1"
+  create_test_key "$key2" "preserve_test_2"
+  
+  run main attach "$key1"
+  assert_success
+  run main attach "$key2"
+  assert_success
+  
+  # Detach only first key
+  run main detach "$key1"
+  assert_success
+  
+  # Verify second key remains in agent and records
+  verify_agent_contains_key "preserve_test_2"
+  verify_key_recorded "$key2"
+  
+  # Verify first key is gone from both
+  run ssh-add -l
+  refute_output --partial "preserve_test_1"
+  verify_key_not_recorded "$key1"
+}
+
+@test "detach handles sequential operations safely" {
+  local key1="$BATS_TMPDIR/seq1_rsa"
+  local key2="$BATS_TMPDIR/seq2_rsa"
+  
+  create_test_key "$key1" "seq1"
+  create_test_key "$key2" "seq2"
+  
+  run main attach "$key1"
+  run main attach "$key2"
+  
+  # Detach both keys in sequence
+  run main detach "$key1"
+  assert_success
+  run main detach "$key2"
+  assert_success
+  
+  # Verify clean state
+  verify_agent_empty
+  [ ! -f "$STATE_DIR/added_keys.list" ]
+}
+
+@test "detach provides clear error for invalid key path" {
+  # Detach a path that exists neither in agent nor in records
+  run main detach "/nonexistent/path/to/key"
+  
+  assert_failure
+  assert_output --partial "not found in agent"
 }

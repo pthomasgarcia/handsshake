@@ -160,24 +160,23 @@ main() {
             *)
                 # State-changing commands are unsafe to run as a subprocess
                 # because SSH_AUTH_SOCK will die when this script exits.
-                local script_name
-                script_name="$(basename "$0")"
-                local full_path="$HANDSSHAKE_SCRIPT_DIR/$script_name"
+                local script_path="${BASH_SOURCE[0]}"
                 local red="\033[1;31m"
                 local yellow="\033[1;33m"
                 local cyan="\033[1;36m"
                 local nc="\033[0m" # No Color
 
                 echo -e "${red}Error:${nc} Command '$cmd' requires shell \
-environment integration." >&2
+                    integration." >&2
                 echo -e "${yellow}Reason:${nc} Environment variables will \
-not persist to your current shell." >&2
+                    not persist." >&2
                 echo "" >&2
                 echo "You must SOURCE this script to use this command:" >&2
-                echo -e "  ${cyan}source $full_path $cmd $*${nc}" >&2
+                echo -e "  ${cyan}source $script_path $cmd $*${nc}" >&2
                 echo "" >&2
                 echo "Or create an alias in your .bashrc/.zshrc:" >&2
-                echo -e "  ${cyan}alias handsshake='source $full_path'${nc}" >&2
+                echo -e "  ${cyan}alias handsshake='source $script_path'${nc}" \
+                    >&2
                 return 1
                 ;;
         esac

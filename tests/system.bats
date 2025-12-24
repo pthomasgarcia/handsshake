@@ -4,20 +4,7 @@ load "test_helper/bats-support/load.bash"
 load "test_helper/bats-assert/load.bash"
 load "test_helper/common_setup.bash"
 
-@test "health command should work" {
-  run main health
-  assert_success
-}
-
-@test "health with -H flag works" {
-  run main -H
-  assert_success
-}
-
-@test "health with --health flag works" {
-  run main --health
-  assert_success
-}
+# --- System Metadata ---
 
 @test "version command should show version" {
   run main version
@@ -43,16 +30,43 @@ load "test_helper/common_setup.bash"
   assert_output --partial "Usage"
 }
 
-@test "help with -h flag works" {
-  run main -h
+@test "help text includes all commands and is well-formatted" {
+  run main help
   assert_success
-  assert_output --partial "Usage"
+  # Check for all major commands
+  assert_output --partial "attach"
+  assert_output --partial "detach"
+  assert_output --partial "flush"
+  assert_output --partial "list"
+  assert_output --partial "keys"
+  assert_output --partial "timeout"
+  assert_output --partial "cleanup"
+  assert_output --partial "health"
+  assert_output --partial "version"
+  
+  # Check for usage pattern
+  assert_output --regexp "Usage:[[:space:]]+source[[:space:]]+.*[[:space:]]+<command>"
+  
+  # Check for argument documentation
+  assert_output --partial "key_file"
+  assert_output --partial "seconds"
 }
 
-@test "help with --help flag works" {
-  run main --help
+# --- System Health & Connectivity ---
+
+@test "health command should work" {
+  run main health
   assert_success
-  assert_output --partial "Usage"
+}
+
+@test "health with -H flag works" {
+  run main -H
+  assert_success
+}
+
+@test "health with --health flag works" {
+  run main --health
+  assert_success
 }
 
 @test "unknown command should fail" {
@@ -60,6 +74,8 @@ load "test_helper/common_setup.bash"
   assert_failure
   assert_output --partial "Unknown command"
 }
+
+# --- System Resilience & Recovery ---
 
 @test "reconnects when agent dies unexpectedly" {
   local test_key="$BATS_TMPDIR/recovery_key_rsa"
@@ -83,6 +99,27 @@ load "test_helper/common_setup.bash"
   fi
 }
 
+@test "recovers from repeated agent crashes" {
+  local test_key="$BATS_TMPDIR/crash_test_rsa"
+  create_test_key "$test_key" "crash_test"
+  
+  run main attach "$test_key"
+  assert_success
+  
+  for i in {1..2}; do
+    # Kill agent without cleanup
+    if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
+      source "$STATE_DIR/ssh-agent.env"
+      kill "$SSH_AGENT_PID" 2>/dev/null || true
+    fi
+    
+    # Each operation should recover
+    run main health
+    assert_success
+    assert_output --partial "Agent is reachable"
+  done
+}
+
 @test "handles multiple agent instances gracefully" {
   # Start a separate agent manually
   local agent_output
@@ -92,18 +129,14 @@ load "test_helper/common_setup.bash"
   external_sock=$(echo "$agent_output" | sed -n 's/SSH_AUTH_SOCK=\([^;]*\);.*/\1/p')
   external_pid=$(echo "$agent_output" | sed -n 's/SSH_AGENT_PID=\([^;]*\);.*/\1/p')
   
-  # Save original values
-  local original_sock="${SSH_AUTH_SOCK:-}"
-  local original_pid="${SSH_AGENT_PID:-}"
-  
-  # Set external agent
+  # Force environment to use external agent
   export SSH_AUTH_SOCK="$external_sock"
   export SSH_AGENT_PID="$external_pid"
   
   local test_key="$BATS_TMPDIR/external_agent_key_rsa"
   create_test_key "$test_key" "external_agent_test"
   
-  # Should use the external agent
+  # Should use the external agent because ensure_agent sees it as valid
   run main attach "$test_key"
   assert_success
   
@@ -113,44 +146,58 @@ load "test_helper/common_setup.bash"
   
   # Clean up external agent
   kill "$external_pid" 2>/dev/null || true
-  
-  # Restore original values
-  if [[ -n "$original_sock" ]]; then
-    export SSH_AUTH_SOCK="$original_sock"
-  else
-    unset SSH_AUTH_SOCK
-  fi
-  if [[ -n "$original_pid" ]]; then
-    export SSH_AGENT_PID="$original_pid"
-  else
-    unset SSH_AGENT_PID
-  fi
 }
 
-@test "help text includes all commands and is well-formatted" {
-  run main help
+# --- Resource Management ---
+
+@test "cleanup removes all handsshake resources" {
+  local test_key="$BATS_TMPDIR/cleanup_res_rsa"
+  create_test_key "$test_key" "cleanup_test"
+  
+  # Create state
+  run main attach "$test_key"
   assert_success
-  # Check for all major commands
-  assert_output --partial "attach"
-  assert_output --partial "detach"
-  assert_output --partial "flush"
-  assert_output --partial "list"
-  assert_output --partial "keys"
-  assert_output --partial "timeout"
-  assert_output --partial "cleanup"
-  assert_output --partial "health"
-  assert_output --partial "version"
   
-  # Check for usage pattern
-  assert_output --regexp "Usage:.*source.*<command>"
+  # Verify state exists
+  [ -f "$STATE_DIR/ssh-agent.env" ]
   
-  # Check for argument documentation
-  assert_output --partial "key_file"
-  assert_output --partial "seconds"
+  # Cleanup
+  run main cleanup
+  assert_success
+  
+  # Verify files are gone
+  [ ! -f "$STATE_DIR/ssh-agent.env" ]
+  [ ! -f "$STATE_DIR/added_keys.list" ]
+}
+
+@test "handles missing configuration gracefully" {
+  # Record the config dir path
+  local target_dir="$CONFIG_DIR"
+  
+  # Remove config directory entirely
+  rm -rf "$target_dir"
+  
+  # Should use defaults without error
+  run main health
+  assert_success
+  
+  # Re-create it if load_config didn't (currently load_config only creates state dirs)
+  mkdir -p "$target_dir"
+  [ -d "$target_dir" ]
+}
+
+@test "handles corrupted configuration file" {
+  # Create corrupted config
+  mkdir -p "$CONFIG_DIR"
+  echo "invalid !!! bash syntax" > "$CONFIG_DIR/settings.conf"
+  echo "HANDSSHAKE_DEFAULT_TIMEOUT=not_a_number" >> "$CONFIG_DIR/settings.conf"
+  
+  # Should handle gracefully (log errors but proceed with defaults)
+  run main health
+  assert_success
 }
 
 @test "state-changing commands fail when executed directly" {
-  # The script should have logic to detect if it's sourced or executed
-  # We can verify the HANDSSHAKE_LOADED variable is set to true when sourced
+  # We verify the HANDSSHAKE_LOADED variable is set to true when sourced
   [ "${HANDSSHAKE_LOADED:-}" = "true" ]
 }

@@ -4,6 +4,8 @@ load "test_helper/bats-support/load.bash"
 load "test_helper/bats-assert/load.bash"
 load "test_helper/common_setup.bash"
 
+# --- Flush Operations ---
+
 @test "flush command should remove all keys" {
   local test_key1="$BATS_TMPDIR/test_key1_rsa"
   local test_key2="$BATS_TMPDIR/test_key2_rsa"
@@ -85,6 +87,30 @@ load "test_helper/common_setup.bash"
   [[ ! -f "$STATE_DIR/added_keys.list" ]]
 }
 
+@test "flush handles sequential operations gracefully" {
+  local key1="$BATS_TMPDIR/flush_seq1_rsa"
+  local key2="$BATS_TMPDIR/flush_seq2_rsa"
+  
+  create_test_key "$key1" "flush1"
+  create_test_key "$key2" "flush2"
+  
+  run main attach "$key1"
+  run main attach "$key2"
+  
+  # Rapid flush simulation
+  run main flush
+  assert_success
+  
+  # Second flush should be a safe no-op
+  run main flush
+  assert_success
+  
+  verify_agent_empty
+  [ ! -f "$STATE_DIR/added_keys.list" ]
+}
+
+# --- List Operations ---
+
 @test "list command shows attached keys" {
   local test_key="$BATS_TMPDIR/test_list_key_rsa"
   create_test_key "$test_key" "test_list_key"
@@ -121,6 +147,36 @@ load "test_helper/common_setup.bash"
   assert_output --partial "test_list_flag"
 }
 
+@test "list command shows consistent output format" {
+  local test_key="$BATS_TMPDIR/format_list_rsa"
+  create_test_key "$test_key" "format_list_test"
+  
+  run main attach "$test_key"
+  assert_success
+  
+  run main list
+  assert_success
+  
+  # Account for the "Attached keys:" header
+  # Should show: key-size SHA256:fingerprint comment (RSA)
+  assert_output --regexp "Attached keys:[[:space:]]+[0-9]+ SHA256:[A-Za-z0-9+/]+.*format_list_test.*\(RSA\)$"
+}
+
+@test "list provides helpful message when agent is unreachable" {
+  # Kill agent without cleanup
+  if [[ -f "$STATE_DIR/ssh-agent.env" ]]; then
+    source "$STATE_DIR/ssh-agent.env"
+    kill "$SSH_AGENT_PID" 2>/dev/null || true
+  fi
+  
+  # Try to list - ensure_agent should detect dead agent and restart
+  run main list
+  assert_success
+  assert_output --partial "Agent is empty"
+}
+
+# --- Key Display Operations ---
+
 @test "keys command shows attached keys" {
   local test_key="$BATS_TMPDIR/test_keys_key_rsa"
   create_test_key "$test_key" "test_keys_key"
@@ -131,6 +187,20 @@ load "test_helper/common_setup.bash"
   run main keys
   assert_success
   assert_output --partial "test_keys_key"
+}
+
+@test "keys command outputs valid SSH public key format" {
+  local test_key="$BATS_TMPDIR/format_test_rsa"
+  create_test_key "$test_key" "format_test"
+  
+  run main attach "$test_key"
+  assert_success
+  
+  run main keys
+  assert_success
+  
+  # Verify it's a valid SSH public key format
+  assert_output --regexp "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ format_test$"
 }
 
 @test "keys with -k flag works" {
@@ -156,6 +226,8 @@ load "test_helper/common_setup.bash"
   assert_success
   assert_output --partial "test_keys_flag"
 }
+
+# --- Timeout Operations ---
 
 @test "timeout command should update timeouts" {
   local test_key="$BATS_TMPDIR/test_timeout_key_rsa"
@@ -191,6 +263,29 @@ load "test_helper/common_setup.bash"
   run main --timeout 1800
   assert_success
   assert_output --partial "Updated 1 keys."
+}
+
+@test "timeout updates all keys correctly" {
+  local key1="$BATS_TMPDIR/timeout1_rsa"
+  local key2="$BATS_TMPDIR/timeout2_rsa"
+  
+  create_test_key "$key1" "timeout1"
+  create_test_key "$key2" "timeout2"
+  
+  run main attach "$key1"
+  assert_success
+  run main attach "$key2"
+  assert_success
+  
+  # Update timeouts
+  run main timeout 3600
+  assert_success
+  assert_output --partial "Updated 2 keys"
+  
+  # Verify both still exist in agent
+  run main list
+  assert_output --partial "timeout1"
+  assert_output --partial "timeout2"
 }
 
 @test "timeout with invalid value should fail" {

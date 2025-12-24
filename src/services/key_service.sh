@@ -12,7 +12,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../util/validation_utils.sh"
 
 record_key() {
     local key_file
-    key_file=$(realpath "$1" 2> /dev/null || echo "$1")
+    # Normalize path to prevent duplicates from symlinks/relative paths
+    key_file=$(readlink -f "$1" 2> /dev/null ||
+        realpath "$1" 2> /dev/null ||
+        echo "$1")
+
+    if [[ -z "$key_file" ]]; then
+        return 1
+    fi
+
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] &&
         grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
         return 0
@@ -25,7 +33,11 @@ detach_record() {
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         local tmp_content
         tmp_content=$(grep -Fxv "$key_file" "$HANDSSHAKE_RECORD_FILE" || true)
-        atomic_write "$HANDSSHAKE_RECORD_FILE" "$tmp_content"
+        if [[ -z "$tmp_content" ]]; then
+            rm -f "$HANDSSHAKE_RECORD_FILE"
+        else
+            atomic_write "$HANDSSHAKE_RECORD_FILE" "$tmp_content"
+        fi
     fi
 }
 
@@ -33,6 +45,20 @@ clear_records() {
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         rm -f "$HANDSSHAKE_RECORD_FILE"
     fi
+}
+
+# --- Key Information ---
+
+get_key_fingerprint() {
+    local key_file="$1"
+    local fingerprint
+    # Extract SHA256 fingerprint
+    fingerprint=$(ssh-keygen -lf "$key_file" 2> /dev/null | awk '{print $2}')
+    if [[ -n "$fingerprint" ]]; then
+        echo "$fingerprint"
+        return 0
+    fi
+    return 1
 }
 
 # --- Primary Service Commands ---
@@ -49,6 +75,21 @@ attach() {
     if ! validate_file "$key_file" "r" 2> /dev/null; then
         echo "Invalid key file: '$key_file' is missing or not readable." >&2
         return 1
+    fi
+
+    # Verify it's a valid SSH key and get fingerprint
+    local fingerprint
+    if ! fingerprint=$(get_key_fingerprint "$key_file"); then
+        echo "Invalid key file: '$key_file' is not a valid SSH key." >&2
+        return 1
+    fi
+
+    # Check if key is already in agent (avoid duplicate attach)
+    if ssh-add -l 2> /dev/null | grep -q "$fingerprint"; then
+        log_info "Key '$key_file' already in agent (fingerprint: $fingerprint)."
+        echo "Key '$key_file' already attached."
+        record_key "$key_file"
+        return 0
     fi
 
     echo "Attaching key '$key_file'..."
@@ -157,36 +198,54 @@ timeout() {
         return 1
     fi
 
-    if [[ ! -f "$HANDSSHAKE_RECORD_FILE" ]] ||
-        [[ ! -s "$HANDSSHAKE_RECORD_FILE" ]]; then
+    # Quick check for empty state
+    if [[ ! -s "$HANDSSHAKE_RECORD_FILE" ]]; then
         echo "No keys currently recorded to update." >&2
         return 0
     fi
 
-    echo "Updating timeout for all recorded keys to ${new_timeout}s..."
-    local updated=0
-    # Use a temporary file to avoid issues with reading and modifying records
-    local record_copy
-    record_copy=$(mktemp)
-    cp "$HANDSSHAKE_RECORD_FILE" "$record_copy"
+    # Acquire lock for record modification (Defense-in-depth)
+    (
+        flock -x 200
 
-    while IFS= read -r key_file || [[ -n "$key_file" ]]; do
-        [[ -z "$key_file" ]] && continue
-        # Ensure we have the absolute path for ssh-add -d
-        local abs_key
-        abs_key=$(realpath "$key_file" 2> /dev/null || echo "$key_file")
-        if [[ -f "$abs_key" ]]; then
-            # Re-attach with new timeout
-            # Use || true to avoid triggering set -e if ssh-add fails
-            ssh-add -d "$abs_key" > /dev/null 2>&1 || true
-            if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
-                updated=$((updated + 1))
+        echo "Updating timeout for all recorded keys to ${new_timeout}s..."
+        local updated=0
+        local failed=0
+
+        # Get unique keys first (remove duplicates and empty lines)
+        local unique_keys
+        unique_keys=$(sort -u "$HANDSSHAKE_RECORD_FILE" | grep -v '^$')
+
+        # Process keys
+        while read -r key_file; do
+            [[ -z "$key_file" ]] && continue
+
+            local abs_key
+            abs_key=$(readlink -f "$key_file" 2> /dev/null ||
+                realpath "$key_file" 2> /dev/null ||
+                echo "$key_file")
+
+            if [[ -f "$abs_key" ]]; then
+                # Detach first then re-attach with new timeout
+                ssh-add -d "$abs_key" > /dev/null 2>&1 || true
+                if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
+                    updated=$((updated + 1))
+                else
+                    log_warn "Failed to update timeout for $abs_key."
+                    failed=$((failed + 1))
+                fi
+            else
+                log_warn "Key file not found during timeout update: $abs_key."
+                failed=$((failed + 1))
             fi
-        fi
-    done < "$record_copy"
-    rm -f "$record_copy"
+        done <<< "$unique_keys"
 
-    echo "Updated $updated keys."
-    log_info "Global timeout updated to ${new_timeout}s for $updated keys."
+        echo "Updated $updated keys."
+        if [[ $failed -gt 0 ]]; then
+            log_warn "Failed to update $failed recorded keys."
+        fi
+        log_info "Global timeout updated to ${new_timeout}s for $updated keys."
+    ) 200> "$HANDSSHAKE_LOCK_FILE"
+
     return 0
 }
