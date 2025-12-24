@@ -1,11 +1,11 @@
 # shellcheck shell=bash
 # Source dependencies
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/files.sh"
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/loggers.sh"
 
-health() {
+health::check_all() {
     echo "Health Check:"
     local ssh_dir="$HOME/.ssh"
     local default_key="$ssh_dir/id_ed25519"
@@ -20,7 +20,7 @@ health() {
     local stored_pid=""
     local __parsed_sock=""
     local __parsed_pid=""
-    if parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
+    if files::parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
         stored_sock="$__parsed_sock"
         stored_pid="$__parsed_pid"
         echo "  Stored handsshake socket: ${stored_sock:-<none>}"

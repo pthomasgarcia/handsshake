@@ -2,15 +2,17 @@
 
 # --- Dependencies ---
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/files.sh"
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/loggers.sh"
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/validation_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/validators.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/agents.sh"
 
 # --- Record Management (Internal) ---
 
-record_key() {
+keys::_record() {
     local key_file
     # Normalize path to prevent duplicates from symlinks/relative paths
     key_file=$(readlink -f "$1" 2> /dev/null ||
@@ -28,7 +30,7 @@ record_key() {
     echo "$key_file" >> "$HANDSSHAKE_RECORD_FILE"
 }
 
-detach_record() {
+keys::_detach_record() {
     local key_file="$1"
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         local tmp_content
@@ -36,12 +38,12 @@ detach_record() {
         if [[ -z "$tmp_content" ]]; then
             rm -f "$HANDSSHAKE_RECORD_FILE"
         else
-            atomic_write "$HANDSSHAKE_RECORD_FILE" "$tmp_content"
+            files::atomic_write "$HANDSSHAKE_RECORD_FILE" "$tmp_content"
         fi
     fi
 }
 
-clear_records() {
+keys::_clear_records() {
     if [[ -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         rm -f "$HANDSSHAKE_RECORD_FILE"
     fi
@@ -49,7 +51,7 @@ clear_records() {
 
 # --- Key Information ---
 
-get_key_fingerprint() {
+keys::_get_fingerprint() {
     local key_file="$1"
     local fingerprint
     # Extract SHA256 fingerprint
@@ -64,49 +66,50 @@ get_key_fingerprint() {
 # --- Primary Service Commands ---
 
 # Usage: attach [key_file]
-attach() {
-    ensure_agent
+keys::attach() {
+    agents::ensure
     local key_file="${1:-$HANDSSHAKE_DEFAULT_KEY}"
 
     if [[ "$key_file" == "$HANDSSHAKE_DEFAULT_KEY" ]] && [[ -z "${1:-}" ]]; then
         echo "No key specified. Using default: $key_file"
     fi
 
-    if ! validate_file "$key_file" "r" 2> /dev/null; then
+    if ! validators::file "$key_file" "r" 2> /dev/null; then
         echo "Invalid key file: '$key_file' is missing or not readable." >&2
         return 1
     fi
 
     # Verify it's a valid SSH key and get fingerprint
     local fingerprint
-    if ! fingerprint=$(get_key_fingerprint "$key_file"); then
+    if ! fingerprint=$(keys::_get_fingerprint "$key_file"); then
         echo "Invalid key file: '$key_file' is not a valid SSH key." >&2
         return 1
     fi
 
     # Check if key is already in agent (avoid duplicate attach)
     if ssh-add -l 2> /dev/null | grep -q "$fingerprint"; then
-        log_info "Key '$key_file' already in agent (fingerprint: $fingerprint)."
+        loggers::info "Key '$key_file' already in agent (fingerprint: \
+$fingerprint)."
         echo "Key '$key_file' already attached."
-        record_key "$key_file"
+        keys::_record "$key_file"
         return 0
     fi
 
     echo "Attaching key '$key_file'..."
     if ssh-add -t "$HANDSSHAKE_DEFAULT_TIMEOUT" "$key_file"; then
-        log_info "Key '$key_file' attached \
+        loggers::info "Key '$key_file' attached \
 (timeout: ${HANDSSHAKE_DEFAULT_TIMEOUT}s)."
         echo "Key '$key_file' attached."
-        record_key "$key_file"
+        keys::_record "$key_file"
     else
-        log_error "Failed to attach key '$key_file'."
+        loggers::error "Failed to attach key '$key_file'."
         return 1
     fi
 }
 
 # Usage: detach <key_file>
-detach() {
-    ensure_agent
+keys::detach() {
+    agents::ensure
     local key_file="${1:-}"
 
     if [[ -z "$key_file" ]] || [[ "$#" -ne 1 ]]; then
@@ -117,47 +120,47 @@ detach() {
     # We attempt to detach from the agent even if the file is missing locally
     echo "Detaching key '$key_file'..."
     if ssh-add -d "$key_file" 2> /dev/null; then
-        log_info "Detached key '$key_file' from agent."
+        loggers::info "Detached key '$key_file' from agent."
         echo "Key '$key_file' detached."
     else
         # If it failed, it might be because the file is missing,
         # but we should still check if it was in our record
         if [[ -f "$HANDSSHAKE_RECORD_FILE" ]] &&
             grep -Fxq "$key_file" "$HANDSSHAKE_RECORD_FILE"; then
-            log_warn "Key '$key_file' file missing but was in record. \
+            loggers::warn "Key '$key_file' file missing but was in record. \
 Cleaning up record."
             echo "Key '$key_file' detached."
-            detach_record "$key_file"
+            keys::_detach_record "$key_file"
             return 0 # Return success if we at least cleaned the record
         fi
 
-        log_warn "Key '$key_file' was not in the agent or file missing."
+        loggers::warn "Key '$key_file' was not in the agent or file missing."
         echo "Warning: Key '$key_file' not found in agent." >&2
-        detach_record "$key_file"
+        keys::_detach_record "$key_file"
         return 1
     fi
 
     # Always clean the record to maintain consistency
-    detach_record "$key_file"
+    keys::_detach_record "$key_file"
 }
 
 # Usage: flush
-flush() {
-    ensure_agent
+keys::flush() {
+    agents::ensure
     echo "Flushing all keys from agent..."
     if ssh-add -D; then
-        log_info "Flushed all keys from ssh-agent."
+        loggers::info "Flushed all keys from ssh-agent."
         echo "All keys flushed."
-        clear_records
+        keys::_clear_records
     else
-        log_error "Failed to flush keys."
+        loggers::error "Failed to flush keys."
         return 1
     fi
 }
 
 # Usage: list
-list_keys() {
-    ensure_agent
+keys::list() {
+    agents::ensure
     local out
     out=$(ssh-add -l 2>&1)
     local code=$?
@@ -176,14 +179,14 @@ list_keys() {
 
 # Usage: keys
 # Maps to keys|-k|--keys) keys "$@" ;;
-keys() {
-    ensure_agent
+keys::show_public() {
+    agents::ensure
     ssh-add -L
 }
 
 # Usage: timeout <seconds>
-timeout() {
-    ensure_agent
+keys::update_timeout() {
+    agents::ensure
     local new_timeout="${1:-}"
 
     if [[ -z "$new_timeout" ]]; then
@@ -231,20 +234,22 @@ timeout() {
                 if ssh-add -t "$new_timeout" "$abs_key" > /dev/null 2>&1; then
                     updated=$((updated + 1))
                 else
-                    log_warn "Failed to update timeout for $abs_key."
+                    loggers::warn "Failed to update timeout for $abs_key."
                     failed=$((failed + 1))
                 fi
             else
-                log_warn "Key file not found during timeout update: $abs_key."
+                loggers::warn "Key file not found during timeout update: \
+$abs_key."
                 failed=$((failed + 1))
             fi
         done <<< "$unique_keys"
 
         echo "Updated $updated keys."
         if [[ $failed -gt 0 ]]; then
-            log_warn "Failed to update $failed recorded keys."
+            loggers::warn "Failed to update $failed recorded keys."
         fi
-        log_info "Global timeout updated to ${new_timeout}s for $updated keys."
+        loggers::info "Global timeout updated to ${new_timeout}s for \
+$updated keys."
     ) 200> "$HANDSSHAKE_LOCK_FILE"
 
     return 0

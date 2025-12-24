@@ -2,23 +2,23 @@
 
 # --- Dependencies ---
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/file_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/files.sh"
 # shellcheck source=/dev/null
-source "$(dirname "${BASH_SOURCE[0]}")/../util/logging_utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../util/loggers.sh"
 
 # --- Internal Agent Lifecycle ---
 
-load_agent_env() {
+agents::_load_env() {
     local __parsed_sock=""
     local __parsed_pid=""
-    if parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
+    if files::parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
         export SSH_AUTH_SOCK="$__parsed_sock"
         export SSH_AGENT_PID="$__parsed_pid"
     fi
     return 0
 }
 
-start_agent() {
+agents::start() {
     local agent_out
     agent_out=$(ssh-agent -s)
     SSH_AUTH_SOCK=$(echo "$agent_out" |
@@ -27,7 +27,7 @@ start_agent() {
         sed -n 's/SSH_AGENT_PID=\([^;]*\);.*/\1/p')
 
     if [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ -z "${SSH_AGENT_PID:-}" ]]; then
-        log_error "Failed to start ssh-agent."
+        loggers::error "Failed to start ssh-agent."
         return 1
     fi
 
@@ -37,17 +37,17 @@ start_agent() {
     local env_content="SSH_AUTH_SOCK=${SSH_AUTH_SOCK}
 SSH_AGENT_PID=${SSH_AGENT_PID}"
 
-    if ! atomic_write "$HANDSSHAKE_AGENT_ENV_FILE" "$env_content"; then
-        log_error "Failed to write agent environment file."
+    if ! files::atomic_write "$HANDSSHAKE_AGENT_ENV_FILE" "$env_content"; then
+        loggers::error "Failed to write agent environment file."
         return 1
     fi
 
-    log_info "Started new ssh-agent with PID: $SSH_AGENT_PID."
+    loggers::info "Started new ssh-agent with PID: $SSH_AGENT_PID."
     echo "Started new ssh-agent with PID: $SSH_AGENT_PID."
     return 0
 }
 
-is_agent_valid() {
+agents::_is_valid() {
     if [[ -n "${SSH_AUTH_SOCK:-}" ]] && [[ -n "${SSH_AGENT_PID:-}" ]]; then
         if [[ -S "$SSH_AUTH_SOCK" ]] &&
             kill -0 "$SSH_AGENT_PID" 2> /dev/null; then
@@ -57,10 +57,10 @@ is_agent_valid() {
     return 1
 }
 
-ensure_agent() {
-    load_agent_env
-    if ! is_agent_valid; then
-        start_agent
+agents::ensure() {
+    agents::_load_env
+    if ! agents::_is_valid; then
+        agents::start
     fi
     return 0
 }
@@ -69,7 +69,7 @@ ensure_agent() {
 
 # Usage: cleanup
 # Renamed from cleanup_agent to match dispatcher
-cleanup() {
+agents::stop() {
     echo "Cleaning up..."
 
     local stored_sock=""
@@ -77,7 +77,7 @@ cleanup() {
     local __parsed_sock=""
     local __parsed_pid=""
 
-    if parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
+    if files::parse_agent_env "$HANDSSHAKE_AGENT_ENV_FILE"; then
         stored_sock="$__parsed_sock"
         stored_pid="$__parsed_pid"
 
@@ -87,14 +87,14 @@ cleanup() {
             if [[ -n "$proc_name" ]] &&
                 [[ "$(basename "$proc_name")" == "ssh-agent" ]]; then
                 kill "$stored_pid"
-                log_info "Killed handsshake ssh-agent (PID: $stored_pid)."
+                loggers::info "Killed handsshake ssh-agent (PID: $stored_pid)."
                 echo "Killed ssh-agent (PID: $stored_pid)."
             fi
         fi
 
         if [[ -S "$stored_sock" ]]; then
             rm -f "$stored_sock"
-            log_info "Removed handsshake socket: $stored_sock"
+            loggers::info "Removed handsshake socket: $stored_sock"
             echo "Removed socket file."
 
             local sock_dir
@@ -112,7 +112,7 @@ cleanup() {
 
     if [[ -f "$HANDSSHAKE_AGENT_ENV_FILE" ]]; then
         rm -f "$HANDSSHAKE_AGENT_ENV_FILE"
-        log_info "Removed agent environment file."
+        loggers::info "Removed agent environment file."
         echo "Removed agent environment file."
     fi
     return 0
@@ -120,6 +120,6 @@ cleanup() {
 
 # Usage: version
 # Maps to version|-v|--version) version "$@" ;;
-version() {
+agents::version() {
     echo "handsshake v${HANDSSHAKE_VERSION}"
 }

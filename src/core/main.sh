@@ -18,41 +18,22 @@ fi
 
 # Source core utilities first (Manual bootstrapping)
 # shellcheck source=/dev/null
-source "$HANDSSHAKE_SCRIPT_DIR/../util/logging_utils.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../util/loggers.sh"
 # shellcheck source=/dev/null
-source "$HANDSSHAKE_SCRIPT_DIR/../util/file_utils.sh"
+source "$HANDSSHAKE_SCRIPT_DIR/../util/files.sh"
 
-# Use assert_source for the remaining modules (assumes logging_utils is loaded)
-assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/config.sh"
-assert_source "$HANDSSHAKE_SCRIPT_DIR/../util/validation_utils.sh"
+# Use files::assert_source for the remaining modules
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/constants.sh"
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/configs.sh"
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../util/validators.sh"
 
 # Load Configuration (XDG-aware)
-load_config
+configs::init
 
 # Source Services
-assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/agent_service.sh"
-assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/key_service.sh"
-assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health_service.sh"
-
-########################################
-# Environment & Dependency Validation
-########################################
-
-validate_dependency() {
-    local cmd="$1"
-    if ! command -v "$cmd" > /dev/null 2>&1; then
-        error_exit "Required command '$cmd' not found."
-    fi
-    return 0
-}
-
-validate_environment() {
-    local dependencies=(ssh-agent ssh-add awk pgrep kill flock)
-    for dep in "${dependencies[@]}"; do
-        validate_dependency "$dep"
-    done
-    return 0
-}
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/agents.sh"
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/keys.sh"
+files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health.sh"
 
 ########################################
 # Command Dispatch Module
@@ -99,29 +80,32 @@ dispatch() {
 
     case $cmd in
         # Key management (Requires Sourcing)
-        attach | -a | --attach) attach "$@" ;;
-        detach | -d | --detach) detach "$@" ;;
-        flush | -f | --flush) flush "$@" ;;
+        attach | -a | --attach) keys::attach "$@" ;;
+        detach | -d | --detach) keys::detach "$@" ;;
+        flush | -f | --flush) keys::flush "$@" ;;
 
         # Information/query (Can run directly)
-        list | -l | --list) list_keys "$@" ;;
-        keys | -k | --keys) keys "$@" ;;
+        list | -l | --list) keys::list "$@" ;;
+        keys | -k | --keys) keys::show_public "$@" ;;
 
         # Configuration (Requires Sourcing)
-        timeout | -t | --timeout) timeout "$@" ;;
+        timeout | -t | --timeout) keys::update_timeout "$@" ;;
 
         # Maintenance
-        cleanup | -c | --cleanup) cleanup "$@" ;;
-        health | -H | --health) health "$@" ;;
+        cleanup | -c | --cleanup) agents::stop "$@" ;;
+        health | -H | --health) health::check_all "$@" ;;
 
         # Meta
-        version | -v | --version) version "$@" ;;
+        version | -v | --version) agents::version "$@" ;;
         help | -h | --help)
             usage 0
             return 0
             ;;
 
-        *) error_exit "Unknown command: $cmd" ;;
+        *)
+            loggers::error_exit "Unknown command: $cmd"
+            return 1
+            ;;
     esac
 }
 
@@ -131,13 +115,15 @@ dispatch() {
 
 main() {
     # 1. Ensure all required system binaries exist
-    validate_environment
+    if ! validators::environment; then
+        return 1
+    fi
 
     # 2. Ensure the agent context is available (starts or connects to agent)
     # Note: If executed directly, this agent process will become orphaned
     # unless 'cleanup' is called later. We mitigate this by blocking
     # state-changing commands in execution mode below.
-    ensure_agent
+    agents::ensure
 
     # 3. Determine Execution Context (Sourced vs. Executed)
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -167,9 +153,9 @@ main() {
                 local nc="\033[0m" # No Color
 
                 echo -e "${red}Error:${nc} Command '$cmd' requires shell \
-                    integration." >&2
+integration." >&2
                 echo -e "${yellow}Reason:${nc} Environment variables will \
-                    not persist." >&2
+not persist." >&2
                 echo "" >&2
                 echo "You must SOURCE this script to use this command:" >&2
                 echo -e "  ${cyan}source $script_path $cmd $*${nc}" >&2
@@ -196,4 +182,4 @@ main() {
 }
 
 # Execute main with locking to prevent race conditions
-run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
+files::run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"

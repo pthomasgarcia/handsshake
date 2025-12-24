@@ -1,11 +1,17 @@
 # shellcheck shell=bash
 
-if [[ -n "${HANDSSHAKE_CONFIG_LOADED:-}" ]]; then
+if [[ -n "${HANDSSHAKE_CONFIGS_LOADED:-}" ]]; then
     return 0
 fi
-HANDSSHAKE_CONFIG_LOADED=true
+HANDSSHAKE_CONFIGS_LOADED=true
 
-load_config() {
+# Source dependencies
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/../util/validators.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/../util/files.sh"
+
+configs::init() {
     # Loads the SSH agent configuration from a given file and sets
     # default values. Adheres to XDG Base Directory Specification.
     #
@@ -36,7 +42,7 @@ load_config() {
     # Use defaults without erroring on missing file if config doesn't exist
     if [[ -f "$config_file" ]]; then
         # validate_file checks perms, which is good practice
-        if validate_file "$config_file" "r" 2> /dev/null; then
+        if validators::file "$config_file" "r" 2> /dev/null; then
             # shellcheck source=/dev/null
             source "$config_file"
         fi
@@ -50,30 +56,34 @@ Using default (86400)." >&2
     fi
 
     # 3. Ensure Directories Exist
-    ensure_directory "$(dirname "$HANDSSHAKE_LOG_FILE")" || return $?
-    ensure_directory "$(dirname "$HANDSSHAKE_AGENT_ENV_FILE")" || return $?
-    ensure_directory "$(dirname "$HANDSSHAKE_RECORD_FILE")" || return $?
-    ensure_directory "$(dirname "$HANDSSHAKE_LOCK_FILE")" || return $?
+    validators::ensure_directory "$(dirname "$HANDSSHAKE_LOG_FILE")" ||
+        return $?
+    validators::ensure_directory "$(dirname "$HANDSSHAKE_AGENT_ENV_FILE")" ||
+        return $?
+    validators::ensure_directory "$(dirname "$HANDSSHAKE_RECORD_FILE")" ||
+        return $?
+    validators::ensure_directory "$(dirname "$HANDSSHAKE_LOCK_FILE")" ||
+        return $?
     if [[ ! -f "$HANDSSHAKE_LOG_FILE" ]]; then
         touch "$HANDSSHAKE_LOG_FILE"
     fi
-    secure_file "$HANDSSHAKE_LOG_FILE"
+    files::secure "$HANDSSHAKE_LOG_FILE"
 
     # Secure other state files
     if [[ ! -f "$HANDSSHAKE_AGENT_ENV_FILE" ]]; then
         touch "$HANDSSHAKE_AGENT_ENV_FILE"
     fi
-    secure_file "$HANDSSHAKE_AGENT_ENV_FILE"
+    files::secure "$HANDSSHAKE_AGENT_ENV_FILE"
 
     if [[ ! -f "$HANDSSHAKE_RECORD_FILE" ]]; then
         touch "$HANDSSHAKE_RECORD_FILE"
     fi
-    secure_file "$HANDSSHAKE_RECORD_FILE"
+    files::secure "$HANDSSHAKE_RECORD_FILE"
 
     if [[ ! -f "$HANDSSHAKE_LOCK_FILE" ]]; then
         touch "$HANDSSHAKE_LOCK_FILE"
     fi
-    secure_file "$HANDSSHAKE_LOCK_FILE"
+    files::secure "$HANDSSHAKE_LOCK_FILE"
 
     return 0
 }
