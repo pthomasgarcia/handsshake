@@ -137,6 +137,11 @@ teardown_test_env() {
     # Kill any remaining external agents
     pkill -f "ssh-agent.*handsshake" 2> /dev/null || true
 
+    # CI-Specific Safety Net: Kill ALL ssh-agents to prevent pipeline stalls
+    if [[ "${CI:-}" == "true" ]]; then
+        pkill -u "$(whoami)" ssh-agent 2> /dev/null || true
+    fi
+
     # Cleanup temp directory
     if [[ -d "$BATS_TMPDIR" ]]; then
         rm -rf "$BATS_TMPDIR"
