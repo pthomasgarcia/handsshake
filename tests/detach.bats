@@ -1,8 +1,6 @@
 #!/usr/bin/env bats
 
-load "test_helper/bats-support/load.bash"
-load "test_helper/bats-assert/load.bash"
-load "test_helper/common_setup.bash"
+load "test_helper"
 
 @test "detach command should remove a key" {
   local test_key

@@ -1,12 +1,11 @@
 #!/usr/bin/env bats
 # shellcheck disable=SC2030,SC2031
 
-load "test_helper/bats-support/load.bash"
-load "test_helper/bats-assert/load.bash"
+load "test_helper"
 
 # We source the helper but then IMMEDIATELY override setup/teardown
-# to prevent BATS from using the ones in common_setup.bash for these tests.
-source "tests/test_helper/common_setup.bash"
+# to prevent BATS from using the ones in test_helper.bash for these tests.
+source "tests/test_helper.bash"
 
 setup() { :; }
 teardown() { :; }

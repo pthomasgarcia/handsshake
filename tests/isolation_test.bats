@@ -1,7 +1,6 @@
 #!/usr/bin/env bats
 
-load "test_helper/bats-support/load.bash"
-load "test_helper/bats-assert/load.bash"
+load "test_helper"
 
 @test "isolation: ignores inherited HANDSSHAKE_ variables" {
     # 1. SETUP: Poison the environment with "production" values
@@ -9,7 +8,6 @@ load "test_helper/bats-assert/load.bash"
     export HANDSSHAKE_RECORD_FILE="/tmp/POISONED_RECORD_FILE"
     
     # 2. LOAD: Load the test helper (which should sanitize this)
-    load "test_helper/common_setup.bash"
     
     # 3. VERIFY: The setup function should have unset these
     # Note: common_setup.bash defines 'setup', which bats runs before each test.

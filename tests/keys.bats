@@ -1,8 +1,6 @@
 #!/usr/bin/env bats
 
-load "test_helper/bats-support/load.bash"
-load "test_helper/bats-assert/load.bash"
-load "test_helper/common_setup.bash"
+load "test_helper"
 
 @test "keys command shows attached keys" {
   local test_key
