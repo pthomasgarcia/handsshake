@@ -41,7 +41,7 @@ files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health.sh"
 
 usage() {
     local exit_code="${1:-0}"
-    cat <<EOF
+    cat << EOF
 Usage: source $(basename "$0") <command> [arguments]
 
 Note: Commands marked with [S] must be run in a sourced shell to
@@ -81,40 +81,40 @@ dispatch() {
     shift
 
     case $cmd in
-    # Key management (Requires Sourcing)
-    attach | -a | --attach) keys::attach "$@" ;;
-    detach | -d | --detach) keys::detach "$@" ;;
-    flush | -f | --flush) keys::flush "$@" ;;
+        # Key management (Requires Sourcing)
+        attach | -a | --attach) keys::attach "$@" ;;
+        detach | -d | --detach) keys::detach "$@" ;;
+        flush | -f | --flush) keys::flush "$@" ;;
 
-    # Information/query (Can run directly)
-    list | -l | --list) keys::list "$@" ;;
-    keys | -k | --keys) keys::show_public "$@" ;;
+        # Information/query (Can run directly)
+        list | -l | --list) keys::list "$@" ;;
+        keys | -k | --keys) keys::show_public "$@" ;;
 
-    # Configuration (Requires Sourcing)
-    timeout | -t | --timeout)
-        if [[ "$1" == "--all" ]]; then
-            shift
-            keys::update_all_timeouts "$@"
-        else
-            keys::update_timeout "$@"
-        fi
-        ;;
+        # Configuration (Requires Sourcing)
+        timeout | -t | --timeout)
+            if [[ "$1" == "--all" ]]; then
+                shift
+                keys::update_all_timeouts "$@"
+            else
+                keys::update_timeout "$@"
+            fi
+            ;;
 
-    # Maintenance
-    cleanup | -c | --cleanup) agents::stop "$@" ;;
-    health | -H | --health) health::check_all "$@" ;;
+        # Maintenance
+        cleanup | -c | --cleanup) agents::stop "$@" ;;
+        health | -H | --health) health::check_all "$@" ;;
 
-    # Meta
-    version | -v | --version) agents::version "$@" ;;
-    help | -h | --help)
-        usage 0
-        return 0
-        ;;
+        # Meta
+        version | -v | --version) agents::version "$@" ;;
+        help | -h | --help)
+            usage 0
+            return 0
+            ;;
 
-    *)
-        loggers::error_exit "Unknown command: $cmd"
-        return 1
-        ;;
+        *)
+            loggers::error_exit "Unknown command: $cmd"
+            return 1
+            ;;
     esac
 }
 
@@ -148,32 +148,32 @@ main() {
         local cmd="${1:-help}"
 
         case "$cmd" in
-        health | list | keys | version | cleanup | help | -h | --help)
-            # Read-only or self-destructive commands are safe
-            dispatch "$@"
-            ;;
-        *)
-            # State-changing commands are unsafe to run as a subprocess
-            # because SSH_AUTH_SOCK will die when this script exits.
-            local script_path="${BASH_SOURCE[0]}"
-            local red="\033[1;31m"
-            local yellow="\033[1;33m"
-            local cyan="\033[1;36m"
-            local nc="\033[0m" # No Color
+            health | list | keys | version | cleanup | help | -h | --help)
+                # Read-only or self-destructive commands are safe
+                dispatch "$@"
+                ;;
+            *)
+                # State-changing commands are unsafe to run as a subprocess
+                # because SSH_AUTH_SOCK will die when this script exits.
+                local script_path="${BASH_SOURCE[0]}"
+                local red="\033[1;31m"
+                local yellow="\033[1;33m"
+                local cyan="\033[1;36m"
+                local nc="\033[0m" # No Color
 
-            echo -e "${red}Error:${nc} Command '$cmd' requires shell \
+                echo -e "${red}Error:${nc} Command '$cmd' requires shell \
 integration." >&2
-            echo -e "${yellow}Reason:${nc} Environment variables will \
+                echo -e "${yellow}Reason:${nc} Environment variables will \
 not persist." >&2
-            echo "" >&2
-            echo "You must SOURCE this script to use this command:" >&2
-            echo -e "  ${cyan}source $script_path $cmd $*${nc}" >&2
-            echo "" >&2
-            echo "Or create an alias in your .bashrc/.zshrc:" >&2
-            echo -e "  ${cyan}alias handsshake='source $script_path'${nc}" \
-                >&2
-            return 1
-            ;;
+                echo "" >&2
+                echo "You must SOURCE this script to use this command:" >&2
+                echo -e "  ${cyan}source $script_path $cmd $*${nc}" >&2
+                echo "" >&2
+                echo "Or create an alias in your .bashrc/.zshrc:" >&2
+                echo -e "  ${cyan}alias handsshake='source $script_path'${nc}" \
+                    >&2
+                return 1
+                ;;
         esac
 
     else
