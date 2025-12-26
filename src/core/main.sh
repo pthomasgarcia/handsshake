@@ -68,37 +68,6 @@ EOF
     return "$exit_code"
 }
 
-print_fmt() {
-    local fmt
-    case "$1" in
-        error) fmt="${FMT_RED:-}" ;;
-        warning) fmt="${FMT_YELLOW:-}" ;;
-        info) fmt="${FMT_CYAN:-}" ;;
-        *) fmt="" ;;
-    esac
-    echo -e "${fmt}${1^}:${FMT_RESET:-} $2" >&2
-}
-
-report_usage_error() {
-    # Reports why a command failed when run in a subshell.
-    local cmd="$1"
-    local user_rc=".${SHELL##*/:-bash}rc"
-    # Use BASH_SOURCE[-1] to get the entry-point script path
-    local script_path="${BASH_SOURCE[-1]}"
-
-    print_fmt error "Command '$cmd' requires shell integration"
-    print_fmt warning "Environment variables (like SSH_AUTH_SOCK) will not"
-    print_fmt warning "persist in subshells."
-    echo >&2
-
-    print_fmt info "Fix: source $script_path $*"
-    print_fmt info "Or add this alias to ~/$user_rc:"
-    echo -e "  ${FMT_CYAN:-}alias handsshake=" \
-        "'source $script_path'${FMT_RESET:-}" >&2
-
-    return 1
-}
-
 ########################################
 # Command Dispatch Module
 ########################################
@@ -140,7 +109,12 @@ dispatch() {
 # Main Execution Logic
 ########################################
 
+# shellcheck disable=SC2120
+# main() intentionally uses "$@" for argument passing
 main() {
+    # Debug validators status if DEBUG is set
+    [[ "${DEBUG:-}" == "1" ]] && validators::debug_status
+
     # 1. Ensure all required system binaries exist
     if ! validators::environment; then
         return 1
@@ -148,29 +122,21 @@ main() {
 
     local cmd="${1:-help}"
 
-    # 2. Determine Execution Context
-    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-        # SCENARIO: Script is EXECUTED directly
-        set -Euo pipefail
-
-        case "$cmd" in
-            health | list | keys | version | cleanup | help | -h | --help)
-                agents::ensure
-                dispatch "$@"
-                ;;
-            *)
-                report_usage_error "$@"
-                return 1
-                ;;
-        esac
-    else
-        # SCENARIO: Script is SOURCED
-        if [[ "$#" -gt 0 ]]; then
-            agents::ensure
-            dispatch "$@"
-        else
-            return 0
+    # 2. Validate command context compatibility
+    if ! validators::command_context "$cmd"; then
+        # Command requires sourcing but might not be sourced
+        if ! validators::is_sourced; then
+            validators::require_sourcing "$cmd"
+            return 1
         fi
+    fi
+
+    # 3. Execute command
+    if [[ "$#" -gt 0 ]]; then
+        agents::ensure
+        dispatch "$@"
+    else
+        return 0
     fi
 }
 
@@ -181,7 +147,7 @@ main() {
 # We lock if:
 # 1. The script is being executed directly (always)
 # 2. The script is sourced AND arguments are provided
-if [[ "${BASH_SOURCE[0]}" == "${0}" || "$#" -gt 0 ]]; then
+if ! validators::is_sourced || [[ "$#" -gt 0 ]]; then
     files::run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
 else
     # Sourced with no arguments: Just initialize environment
