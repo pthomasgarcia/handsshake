@@ -29,6 +29,9 @@ test/bats-tmp/
 .config/handsshake/
 .local/state/handsshake/
 
+# Internal project management
+conductor/
+
 # Project documentation to ignore
 docs/architecture_redesign.md
 docs/TROUBLESHOOTING_LOG.md
