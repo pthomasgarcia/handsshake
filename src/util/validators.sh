@@ -1,335 +1,335 @@
+#!/usr/bin/env bash
 # shellcheck shell=bash
+# ---------------------------------------------------------------------------
+#  HandSSHAKE – validator library
+#  ORDER: guards → internal → scalar → numeric → constraints → fs → ssh
+# ---------------------------------------------------------------------------
 
-if [[ -n "${HANDSSHAKE_VALIDATORS_LOADED:-}" ]]; then
-    return 0
-fi
+# ---------- 1. Idempotency guard (SSH spelling kept) ----------
+[[ -n "${HANDSSHAKE_VALIDATORS_LOADED:-}" ]] && return 0
 HANDSSHAKE_VALIDATORS_LOADED=true
 
-# Source logging utilities for consistent error reporting
+# ---------- 2. Strict mode (opt-in) ----------
+if [[ ${HANDSHAKE_STRICT_MODE:-false} == true ]]; then
+    set -euo pipefail
+    shopt -s inherit_errexit
+fi
+
+# ---------- 3. Imports ----------
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/loggers.sh"
-
-# Source shared constants
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/constants.sh"
 
-# Utility Functions
+###############################################################################
+# INTERNAL HELPERS – not for public use
+###############################################################################
 
-validators::trim_string() {
-    # Validates that a string is non-empty after trimming whitespace.
-    local var="$*"
-    # Remove leading whitespace
-    var="${var#"${var%%[![:space:]]*}"}"
-    # Remove trailing whitespace
-    var="${var%"${var##*[![:space:]]}"}"
-    printf '%s' "$var"
-    return 0
+# Safe trim: returns trimmed string on STDOUT, always 0
+validators::_trim() {
+    local var=$*                       # concat args to single string
+    var=${var#"${var%%[![:space:]]*}"} # leading
+    var=${var%"${var##*[![:space:]]}"} # trailing
+    printf '%s\n' "$var"               # %s\n avoids leading-dash problem
 }
 
-validators::_log_error() {
-    # Internal helper for logging validation errors
-    if [[ "${HANDSSHAKE_VERBOSE:-false}" == "true" ]]; then
-        loggers::error "$1: Input '$2'"
+# Centralised error logger – respects HANDSSHAKE_VERBOSE
+validators::_log_err() {
+    local msg=$1 input=$2
+    if [[ ${HANDSSHAKE_VERBOSE:-false} == true ]]; then
+        loggers::error "$msg: Input '$input'"
     fi
-    return 0
 }
 
-validators::_validate_pattern() {
-    # Internal generic pattern validator
+# Shared pattern validator – *prints* trimmed value on success
+validators::_check_regex() {
+    local raw=$1 pattern=$2 errCode=$3 errMsg=$4
     local trimmed
-    trimmed=$(validators::trim_string "$1")
+    trimmed=$(validators::_trim "$raw") || return $? # propagate trim failure
 
-    if [[ -z "$trimmed" ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_EMPTY_STRING" "$1"
-        return "$HANDSSHAKE_CODE_EMPTY_STRING"
-    fi
+    # turn off globbing for the test
+    (
+        shopt -u failglob nullglob dotglob
+        [[ $trimmed =~ ^($pattern)$ ]] || {
+            validators::_log_err "$errMsg" "$raw"
+            return "$errCode"
+        }
+    ) || return $?
 
-    if [[ ! "$trimmed" =~ $2 ]]; then
-        validators::_log_error "$4" "$1"
-        return "$3"
-    fi
-
-    echo "$trimmed"
-    return 0
+    printf '%s\n' "$trimmed"
 }
 
-# Core Data Validations
+###############################################################################
+# SCALAR VALIDATORS
+###############################################################################
 
+# Non-empty string (after trim)
 validators::string() {
     local trimmed
-    trimmed=$(validators::trim_string "$1")
-
-    if [[ -z "$trimmed" ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_EMPTY_STRING" "$1"
+    trimmed=$(validators::_trim "$1") || return $?
+    [[ -n $trimmed ]] || {
+        validators::_log_err "$HANDSSHAKE_MESSAGE_EMPTY_STRING" "$1"
         return "$HANDSSHAKE_CODE_EMPTY_STRING"
-    fi
-
-    echo "$trimmed"
-    return 0
+    }
+    printf '%s\n' "$trimmed"
 }
 
+# Whitelist sanitiser – ASCII only, keeps space ,.;:_-
 validators::sanitize_string() {
-    local input="$1"
-    local sanitized
-    sanitized="${input//[!a-zA-Z0-9 ,.;:_-]/}"
-    echo "$sanitized"
+    local input=$1
+    printf '%s\n' "${input//[!a-zA-Z0-9 ,.;:_-]/}"
 }
 
+# Boolean – true/false/yes/no/1/0  (case insensitive)
 validators::boolean() {
-    local input
-    input="${1:-}"
-    local lower
-    lower="${input,,}"
-
-    validators::_validate_pattern "$lower" "$HANDSSHAKE_PATTERN_BOOL" \
-        "$HANDSSHAKE_CODE_INVALID_BOOLEAN" "$HANDSSHAKE_MESSAGE_INVALID_BOOLEAN"
-    return $?
+    local input=${1,,} # lowercase
+    validators::_check_regex "$input" "$HANDSSHAKE_PATTERN_BOOL" \
+        "$HANDSSHAKE_CODE_INVALID_BOOLEAN" \
+        "$HANDSSHAKE_MESSAGE_INVALID_BOOLEAN"
 }
 
+###############################################################################
+# NUMERIC VALIDATORS
+###############################################################################
+
+# Signed integer
 validators::signed_integer() {
-    validators::_validate_pattern "$1" "$HANDSSHAKE_PATTERN_INT" \
-        "$HANDSSHAKE_CODE_INVALID_INTEGER" "$HANDSSHAKE_MESSAGE_INVALID_INTEGER"
-    return $?
+    validators::_check_regex "$1" "$HANDSSHAKE_PATTERN_INT" \
+        "$HANDSSHAKE_CODE_INVALID_INTEGER" \
+        "$HANDSSHAKE_MESSAGE_INVALID_INTEGER"
 }
 
+# Signed float
 validators::signed_float() {
-    validators::_validate_pattern "$1" "$HANDSSHAKE_PATTERN_FLOAT" \
-        "$HANDSSHAKE_CODE_INVALID_FLOAT" "$HANDSSHAKE_MESSAGE_INVALID_FLOAT"
-    return $?
+    validators::_check_regex "$1" "$HANDSSHAKE_PATTERN_FLOAT" \
+        "$HANDSSHAKE_CODE_INVALID_FLOAT" \
+        "$HANDSSHAKE_MESSAGE_INVALID_FLOAT"
 }
 
-# Numeric Constraints
+# Wrapper: reuse signed_integer for timeout 1-86400
+validators::timeout() {
+    local secs
+    secs=$(validators::signed_integer "$1") || return $?
+    ((secs > 0 && secs <= 86400)) || {
+        validators::_log_err "Timeout must be 1-86400 s" "$1"
+        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
+    }
+    printf '%s\n' "$secs"
+}
 
+###############################################################################
+# NUMERIC CONSTRAINTS (compose the above)
+###############################################################################
+
+# Negative sign gate
 validators::negative_allowed() {
-    local integer
-    local is_negative_allowed
-
+    local integer is_negative_allowed
     integer=$(validators::signed_integer "$1") || return $?
     is_negative_allowed=$(validators::boolean "${2:-true}") || return $?
 
-    if [[ "$is_negative_allowed" == "false" && "$integer" -lt 0 ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED" "$1"
+    if [[ $is_negative_allowed == false && $integer -lt 0 ]]; then
+        validators::_log_err "$HANDSSHAKE_MESSAGE_NEGATIVE_NOT_ALLOWED" "$1"
         return "$HANDSSHAKE_CODE_NEGATIVE_NOT_ALLOWED"
     fi
-    return 0
+    printf '%s\n' "$integer"
 }
 
+# 64-bit range check
 validators::int64() {
-    local integer
-    local is_64bit_check_required
+    local integer=$1
+    local check64
+    check64=$(validators::boolean "${2:-false}") || return $?
 
-    integer="$1"
-    is_64bit_check_required=$(validators::boolean "${2:-false}") || return $?
-
-    if [[ "$is_64bit_check_required" == "true" ]]; then
-        if ((integer < HANDSSHAKE_INT64_MIN || \
-            integer > HANDSSHAKE_INT64_MAX)); then
-            validators::_log_error "$HANDSSHAKE_MESSAGE_EXCEEDS_64BIT" \
-                "$integer"
+    if [[ $check64 == true ]]; then
+        ((integer >= HANDSSHAKE_INT64_MIN && \
+        integer <= HANDSSHAKE_INT64_MAX)) || {
+            validators::_log_err "$HANDSSHAKE_MESSAGE_EXCEEDS_64BIT" "$integer"
             return "$HANDSSHAKE_CODE_EXCEEDS_64BIT"
-        fi
+        }
     fi
-    return 0
+    printf '%s\n' "$integer"
 }
 
+# Range gate  (inclusive min/max)
 validators::range() {
-    local integer
-    local min
-    local max
-
-    integer="$1"
-    min="${2:-}"
-    max="${3:-}"
-
-    if [[ -n "$min" ]]; then
-        min=$(validators::signed_integer "$min") || return $?
-    fi
-    if [[ -n "$max" ]]; then
-        max=$(validators::signed_integer "$max") || return $?
-    fi
-
-    if [[ -n "$min" && "$integer" -lt "$min" ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_OUT_OF_RANGE: \
-Value '$integer' is less than min '$min'" "$integer"
-        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
-    fi
-    if [[ -n "$max" && "$integer" -gt "$max" ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_OUT_OF_RANGE: \
-Value '$integer' is greater than max '$max'" "$integer"
-        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
-    fi
-    return 0
-}
-
-validators::int_constraints() {
-    local integer
-    local min
-    local max
-    local is_negative_allowed
-    local is_64bit_check_required
-
-    integer="$1"
-    min="${2:-}"
-    max="${3:-}"
-    is_negative_allowed="${4:-true}"
-    is_64bit_check_required="${5:-false}"
-
+    local integer=$1 min=${2:-} max=${3:-}
     integer=$(validators::signed_integer "$integer") || return $?
-    validators::negative_allowed "$integer" "$is_negative_allowed" || return $?
-    validators::int64 "$integer" "$is_64bit_check_required" || return $?
-    validators::range "$integer" "$min" "$max" || return $?
 
-    return 0
-}
+    [[ -n $min ]] && min=$(validators::signed_integer "$min") || return $?
+    [[ -n $max ]] && max=$(validators::signed_integer "$max") || return $?
 
-# Identifier Validation
-
-validators::identifier() {
-    local identifier
-    identifier=$(validators::_validate_pattern "$1" \
-        "$HANDSSHAKE_PATTERN_IDENTIFIER" \
-        "$HANDSSHAKE_CODE_INVALID_IDENTIFIER" \
-        "$HANDSSHAKE_MESSAGE_INVALID_IDENTIFIER") || return $?
-
-    if ! (declare -p "$identifier" &> /dev/null ||
-        declare -F "$identifier" &> /dev/null); then
-        validators::_log_error \
-            "$HANDSSHAKE_MESSAGE_IDENTIFIER_UNDECLARED" "$identifier"
-        return "$HANDSSHAKE_CODE_IDENTIFIER_UNDECLARED"
+    if [[ -n $min && $integer -lt $min ]]; then
+        validators::_log_err "Value '$integer' < min '$min'" "$integer"
+        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
     fi
-
-    echo "$identifier"
-    return 0
+    if [[ -n $max && $integer -gt $max ]]; then
+        validators::_log_err "Value '$integer' > max '$max'" "$integer"
+        return "$HANDSSHAKE_CODE_OUT_OF_RANGE"
+    fi
+    printf '%s\n' "$integer"
 }
 
-# System State Checks
+# All-in-one integer validator
+validators::int_constraints() {
+    local integer=$1
+    integer=$(validators::signed_integer "$integer") || return $?
+    integer=$(validators::negative_allowed "$integer" "${4:-true}") || return $?
+    integer=$(validators::int64 "$integer" "${5:-false}") || return $?
+    integer=$(validators::range "$integer" "${2:-}" "${3:-}") || return $?
+    printf '%s\n' "$integer"
+}
 
+###############################################################################
+# FILE-SYSTEM VALIDATORS
+###############################################################################
+
+# File existence (generic)
 validators::file_exists() {
-    # Checks if a file exists (Moved from loggers.sh)
-    local file_path="$1"
-    local error_message="${2:-"File not found: '$file_path'"}"
-
-    if [[ -z "$file_path" ]]; then
-        loggers::error "No file path provided for validators::file_exists."
+    local file=$1
+    local msg=${2:-"File not found: '$file'"}
+    [[ -n $file ]] || {
+        loggers::error "No file path provided"
         return 1
-    fi
-
-    if [[ ! -f "$file_path" ]]; then
-        loggers::error "$error_message"
+    }
+    [[ -f $file ]] || {
+        loggers::error "$msg"
         return 1
-    fi
-    return 0
+    }
 }
 
+# Directory existence + optional writability
 validators::directory() {
-    local dir
-    local is_writable_required
-
-    dir=$(validators::trim_string "$1") || return $?
-    is_writable_required=$(validators::boolean "${2:-false}") || return $?
+    local dir raw_writable
+    dir=$(validators::_trim "$1") || return $?
+    raw_writable=$(validators::boolean "${2:-false}") || return $?
 
     local resolved
-    if ! resolved=$(realpath "$dir" 2> /dev/null) &&
-        ! resolved=$(readlink -f "$dir" 2> /dev/null); then
-        resolved="$dir"
-    fi
-
-    if [[ ! -d "$resolved" ]]; then
-        validators::_log_error \
-            "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_FOUND: Path '$dir'" "$dir"
+    resolved=$(realpath -e "$dir" 2> /dev/null) || resolved=$dir
+    [[ -d $resolved ]] || {
+        validators::_log_err "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_FOUND" "$dir"
         return "$HANDSSHAKE_CODE_DIRECTORY_NOT_FOUND"
-    fi
-
-    if [[ "$is_writable_required" == "true" && ! -w "$resolved" ]]; then
-        validators::_log_error \
-            "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_WRITABLE: Path '$dir'" "$dir"
+    }
+    if [[ $raw_writable == true && ! -w $resolved ]]; then
+        validators::_log_err "$HANDSSHAKE_MESSAGE_DIRECTORY_NOT_WRITABLE" "$dir"
         return "$HANDSSHAKE_CODE_DIRECTORY_NOT_WRITABLE"
     fi
-
-    return 0
 }
 
+# mkdir -p + ensure writable
 validators::ensure_directory() {
-    # Note: Side effect - creates directory
-    local dir="$1"
-
-    if [[ ! -d "$dir" ]]; then
-        if ! mkdir -p "$dir" 2> /dev/null; then
-            validators::_log_error "Failed to create directory: '$dir'" "$dir"
-            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
-        fi
-    fi
-
-    if ! validators::directory "$dir" "true"; then
-        return $?
-    fi
-
-    return 0
-}
-
-validators::file() {
-    local file
-    local permission
-
-    file=$(validators::trim_string "$1") || return $?
-    permission=$(validators::trim_string "${2:-r}") || return $?
-
-    if [[ ! -e "$file" ]]; then
-        validators::_log_error \
-            "$HANDSSHAKE_MESSAGE_FILE_NOT_FOUND: Path '$file'" "$file"
-        return "$HANDSSHAKE_CODE_FILE_NOT_FOUND"
-    fi
-
-    if [[ "$permission" != "r" && "$permission" != "w" &&
-        "$permission" != "x" ]]; then
-        validators::_log_error "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: \
-Invalid permission mode '$permission'. Expected 'r', 'w', or 'x'." "$permission"
+    local dir=$1
+    [[ -d $dir ]] || mkdir -p -- "$dir" || {
+        validators::_log_err "Failed to create directory" "$dir"
         return "$HANDSSHAKE_CODE_FILE_PERMISSION"
-    fi
-
-    case "$permission" in
-        r) [[ -r "$file" ]] || {
-            validators::_log_error \
-                "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Read denied for '$file'" \
-                "$file"
-            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
-        } ;;
-        w) [[ -w "$file" ]] || {
-            validators::_log_error \
-                "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Write denied \
-for '$file'" \
-                "$file"
-            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
-        } ;;
-        x) [[ -x "$file" ]] || {
-            validators::_log_error \
-                "$HANDSSHAKE_MESSAGE_FILE_PERMISSION: Execute \
-denied for '$file'" \
-                "$file"
-            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
-        } ;;
-    esac
-
-    return 0
+    }
+    validators::directory "$dir" true
 }
 
-# Dependency Checks
+# File with permission gate  (r/w/x)
+validators::file() {
+    local file perm
+    file=$(validators::_trim "$1") || return $?
+    perm=${2:-r}
 
-validators::dependency() {
-    local cmd="$1"
-    if ! command -v "$cmd" > /dev/null 2>&1; then
-        loggers::error_exit "Required command '$cmd' not found."
+    [[ -e $file ]] || {
+        validators::_log_err "$HANDSSHAKE_MESSAGE_FILE_NOT_FOUND" "$file"
+        return "$HANDSSHAKE_CODE_FILE_NOT_FOUND"
+    }
+    case $perm in
+        r) [[ -r $file ]] || return "$HANDSSHAKE_CODE_FILE_PERMISSION" ;;
+        w) [[ -w $file ]] || return "$HANDSSHAKE_CODE_FILE_PERMISSION" ;;
+        x) [[ -x $file ]] || return "$HANDSSHAKE_CODE_FILE_PERMISSION" ;;
+        *)
+            validators::_log_err "Invalid permission mode '$perm'" "$perm"
+            return "$HANDSSHAKE_CODE_FILE_PERMISSION"
+            ;;
+    esac
+}
+
+# Unix-domain socket
+validators::socket() {
+    local path
+    path=$(validators::_trim "$1") || return $?
+    [[ -S $path ]] || {
+        validators::_log_err "$HANDSSHAKE_MESSAGE_SOCKET_NOT_FOUND" "$path"
+        return "$HANDSSHAKE_CODE_SOCKET_NOT_FOUND"
+    }
+}
+
+###############################################################################
+# SSH / EXECUTION-CONTEXT HELPERS
+###############################################################################
+
+# Am I being sourced?
+validators::is_sourced() {
+    local result
+    [[ ${BASH_SOURCE[0]} != "$0" ]] && result=0 || result=1
+    [[ ${DEBUG:-} == 1 ]] &&
+        echo "Debug[validators::is_sourced]: context=$result" >&2
+    return "$result"
+}
+
+# Fail with helpful message if sourcing required
+validators::require_sourcing() {
+    local cmd=${1:-}
+    if ! validators::is_sourced; then
+        local user_rc=".${SHELL##*/}rc"
+        local script=${BASH_SOURCE[-1]}
+        print_fmt error "Command '$cmd' requires shell integration"
+        print_fmt warning "Environment variables will not persist in subshells"
+        echo >&2
+        print_fmt info "Fix: source $script $cmd"
+        print_fmt info "Or add to ~/$user_rc:"
+        echo -e "  ${FMT_CYAN}alias handsshake='source $script'${FMT_RESET}" >&2
         return 1
     fi
-    return 0
 }
 
+# Basic tool-chain check
 validators::environment() {
-    local dependencies=(ssh-agent ssh-add awk pgrep kill flock)
-    for dep in "${dependencies[@]}"; do
-        if ! validators::dependency "$dep"; then
-            return 1
-        fi
+    local missing=()
+    for tool in ssh ssh-add ssh-agent; do
+        command -v "$tool" &> /dev/null || missing+=("$tool")
     done
-    return 0
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        loggers::error "Missing required tools: ${missing[*]}"
+        return 1
+    fi
 }
+
+# SSH key sanity
+validators::ssh_key() {
+    local key=${1:-}
+    [[ -n $key && -r $key ]]
+}
+
+# Command whitelist for direct execution
+validators::command_context() {
+    local cmd=$1
+    local -a direct=(health list keys version cleanup help
+        -h --help -v --version -l --list
+        -k --keys -c --cleanup -H --health)
+    local c
+    for c in "${direct[@]}"; do [[ $cmd == "$c" ]] && return 0; done
+    return 1
+}
+
+# Debug dump
+validators::debug_status() {
+    [[ ${DEBUG:-} == 1 ]] || return 0
+    echo "Debug[validators]: Debug mode enabled" >&2
+    if validators::is_sourced; then
+        echo "Debug[validators]: Context = sourced" >&2
+    else
+        echo "Debug[validators]: Context = executed directly" >&2
+    fi
+    if validators::environment; then
+        echo "Debug[validators]: Environment = pass" >&2
+    else
+        echo "Debug[validators]: Environment = fail" >&2
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# End of reorganised validator library
+# ---------------------------------------------------------------------------

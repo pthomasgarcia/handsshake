@@ -1,48 +1,45 @@
 #!/usr/bin/env bash
-
 # shellcheck shell=bash
 
 ########################################
 # Global State & Pathing
 ########################################
 
-# Prevent re-loading if this script is sourced multiple times
 if [[ -z "${HANDSSHAKE_LOADED:-}" ]]; then
-    HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    HANDSSHAKE_LOADED=true
+    HANDSSHAKE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+    readonly HANDSSHAKE_SCRIPT_DIR
+    readonly HANDSSHAKE_LOADED=true
 fi
 
 ########################################
 # Bootstrapping
 ########################################
 
-# Source core utilities first (Manual bootstrapping)
+# 1. Source core utilities first
 # shellcheck source=/dev/null
 source "$HANDSSHAKE_SCRIPT_DIR/../util/loggers.sh"
 # shellcheck source=/dev/null
 source "$HANDSSHAKE_SCRIPT_DIR/../util/files.sh"
 
-# Use files::assert_source for the remaining modules
+# 2. Define remaining modules
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/constants.sh"
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../lib/configs.sh"
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../util/validators.sh"
-
-# Load Configuration (XDG-aware)
-configs::init
-
-# Source Services
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/agents.sh"
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/keys.sh"
 files::assert_source "$HANDSSHAKE_SCRIPT_DIR/../services/health.sh"
 
+# 3. Load Configuration (Critical: establishes $HANDSSHAKE_LOCK_FILE)
+configs::init
+
 ########################################
-# Command Dispatch Module
+# UI Helpers
 ########################################
 
-usage() {
+__handsshake_usage() {
     local exit_code="${1:-0}"
     cat << EOF
-Usage: source $(basename "$0") <command> [arguments]
+Usage: source $(basename "${BASH_SOURCE[-1]}") <command> [arguments]
 
 Note: Commands marked with [S] must be run in a sourced shell to
       persist variables.
@@ -67,30 +64,59 @@ Arguments:
 Examples:
   source handsshake attach
   handsshake timeout ~/.ssh/id_rsa 3600
-  handsshake timeout --all 7200
 EOF
     return "$exit_code"
 }
 
+print_fmt() {
+    local fmt
+    case "$1" in
+        error) fmt="${FMT_RED:-}" ;;
+        warning) fmt="${FMT_YELLOW:-}" ;;
+        info) fmt="${FMT_CYAN:-}" ;;
+        *) fmt="" ;;
+    esac
+    echo -e "${fmt}${1^}:${FMT_RESET:-} $2" >&2
+}
+
+report_usage_error() {
+    # Reports why a command failed when run in a subshell.
+    local cmd="$1"
+    local user_rc=".${SHELL##*/:-bash}rc"
+    # Use BASH_SOURCE[-1] to get the entry-point script path
+    local script_path="${BASH_SOURCE[-1]}"
+
+    print_fmt error "Command '$cmd' requires shell integration"
+    print_fmt warning "Environment variables (like SSH_AUTH_SOCK) will not"
+    print_fmt warning "persist in subshells."
+    echo >&2
+
+    print_fmt info "Fix: source $script_path $*"
+    print_fmt info "Or add this alias to ~/$user_rc:"
+    echo -e "  ${FMT_CYAN:-}alias handsshake=" \
+        "'source $script_path'${FMT_RESET:-}" >&2
+
+    return 1
+}
+
+########################################
+# Command Dispatch Module
+########################################
+
 dispatch() {
     local cmd=${1:-}
     if [[ -z "$cmd" ]]; then
-        usage 1
+        __handsshake_usage 1
         return 1
     fi
     shift
 
     case $cmd in
-        # Key management (Requires Sourcing)
         attach | -a | --attach) keys::attach "$@" ;;
         detach | -d | --detach) keys::detach "$@" ;;
         flush | -f | --flush) keys::flush "$@" ;;
-
-        # Information/query (Can run directly)
         list | -l | --list) keys::list "$@" ;;
         keys | -k | --keys) keys::show_public "$@" ;;
-
-        # Configuration (Requires Sourcing)
         timeout | -t | --timeout)
             if [[ "$1" == "--all" ]]; then
                 shift
@@ -99,27 +125,19 @@ dispatch() {
                 keys::update_timeout "$@"
             fi
             ;;
-
-        # Maintenance
         cleanup | -c | --cleanup) agents::stop "$@" ;;
         health | -H | --health) health::check_all "$@" ;;
-
-        # Meta
         version | -v | --version) agents::version "$@" ;;
-        help | -h | --help)
-            usage 0
-            return 0
-            ;;
-
+        help | -h | --help) __handsshake_usage 0 ;;
         *)
-            loggers::error_exit "Unknown command: $cmd"
+            loggers::error "Unknown command: $cmd"
             return 1
             ;;
     esac
 }
 
 ########################################
-# Main Execution
+# Main Execution Logic
 ########################################
 
 main() {
@@ -128,69 +146,44 @@ main() {
         return 1
     fi
 
-    # 2. Ensure the agent context is available (starts or connects to agent)
-    # Note: If executed directly, this agent process will become orphaned
-    # unless 'cleanup' is called later. We mitigate this by blocking
-    # state-changing commands in execution mode below.
-    agents::ensure
+    local cmd="${1:-help}"
 
-    # 3. Determine Execution Context (Sourced vs. Executed)
+    # 2. Determine Execution Context
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-
-        ####################################################
-        # SCENARIO: Script is EXECUTED directly (Subprocess)
-        ####################################################
-
-        # We strictly limit what commands can run in a subprocess to
-        # prevent "Zombie Agents" and confusion about why variables
-        # aren't set in the parent shell.
-
-        local cmd="${1:-help}"
+        # SCENARIO: Script is EXECUTED directly
+        set -Euo pipefail
 
         case "$cmd" in
             health | list | keys | version | cleanup | help | -h | --help)
-                # Read-only or self-destructive commands are safe
+                agents::ensure
                 dispatch "$@"
                 ;;
             *)
-                # State-changing commands are unsafe to run as a subprocess
-                # because SSH_AUTH_SOCK will die when this script exits.
-                local script_path="${BASH_SOURCE[0]}"
-                local red="\033[1;31m"
-                local yellow="\033[1;33m"
-                local cyan="\033[1;36m"
-                local nc="\033[0m" # No Color
-
-                echo -e "${red}Error:${nc} Command '$cmd' requires shell \
-integration." >&2
-                echo -e "${yellow}Reason:${nc} Environment variables will \
-not persist." >&2
-                echo "" >&2
-                echo "You must SOURCE this script to use this command:" >&2
-                echo -e "  ${cyan}source $script_path $cmd $*${nc}" >&2
-                echo "" >&2
-                echo "Or create an alias in your .bashrc/.zshrc:" >&2
-                echo -e "  ${cyan}alias handsshake='source $script_path'${nc}" \
-                    >&2
+                report_usage_error "$@"
                 return 1
                 ;;
         esac
-
     else
-
-        ####################################################
-        # SCENARIO: Script is SOURCED (Parent Shell)
-        ####################################################
-
+        # SCENARIO: Script is SOURCED
         if [[ "$#" -gt 0 ]]; then
+            agents::ensure
             dispatch "$@"
+        else
+            return 0
         fi
     fi
-
-    return $?
 }
 
-# Execute main with locking to prevent race conditions
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+########################################
+# Entry Point
+########################################
+
+# We lock if:
+# 1. The script is being executed directly (always)
+# 2. The script is sourced AND arguments are provided
+if [[ "${BASH_SOURCE[0]}" == "${0}" || "$#" -gt 0 ]]; then
     files::run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
+else
+    # Sourced with no arguments: Just initialize environment
+    main
 fi

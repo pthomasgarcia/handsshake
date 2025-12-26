@@ -129,33 +129,27 @@ files::atomic_write() {
 }
 
 files::run_with_lock() {
-    # Executes a command with an exclusive lock.
     local lock_file="$1"
     shift
+    local cmd_to_run=("$@")
 
     files::validate_path "$lock_file" \
         "files::run_with_lock: No lock file provided." || return 1
+
+    # Use the library function instead of raw shell commands
     files::ensure_exists "$lock_file" || return 1
 
-    # Open lock file on FD 200
-    exec 200> "$lock_file"
+    (
+        exec 200>> "$lock_file"
 
-    # Acquire exclusive lock
-    if ! flock -x 200; then
-        loggers::error "Failed to acquire lock on $lock_file."
-        exec 200>&-
-        return 1
-    fi
+        if ! flock -x 200; then
+            loggers::error "Failed to acquire lock on $lock_file."
+            exit 1
+        fi
 
-    # Execute command in the current shell context
-    "$@"
-    local ret=$?
-
-    # Release lock and close FD
-    flock -u 200
-    exec 200>&-
-
-    return "$ret"
+        "${cmd_to_run[@]}"
+    )
+    return $?
 }
 
 files::parse_agent_env() {
