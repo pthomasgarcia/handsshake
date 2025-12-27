@@ -36,7 +36,7 @@ configs::init
 # UI Helpers
 ########################################
 
-__handsshake_usage() {
+main::usage() {
     local exit_code="${1:-0}"
     cat << EOF
 Usage: source $(basename "${BASH_SOURCE[-1]}") <command> [arguments]
@@ -72,10 +72,10 @@ EOF
 # Command Dispatch Module
 ########################################
 
-dispatch() {
+main::dispatch() {
     local cmd=${1:-}
     if [[ -z "$cmd" ]]; then
-        __handsshake_usage 1
+        main::usage 1
         return 1
     fi
     shift
@@ -97,7 +97,7 @@ dispatch() {
         cleanup | -c | --cleanup) agents::stop "$@" ;;
         health | -H | --health) health::check_all "$@" ;;
         version | -v | --version) agents::version "$@" ;;
-        help | -h | --help) __handsshake_usage 0 ;;
+        help | -h | --help) main::usage 0 ;;
         *)
             loggers::error "Unknown command: $cmd"
             return 1
@@ -134,7 +134,7 @@ main() {
     # 3. Execute command
     if [[ "$#" -gt 0 ]]; then
         agents::ensure
-        dispatch "$@"
+        main::dispatch "$@"
     else
         return 0
     fi

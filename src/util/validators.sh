@@ -274,13 +274,20 @@ validators::require_sourcing() {
     local cmd=${1:-}
     if ! validators::is_sourced; then
         local user_rc=".${SHELL##*/}rc"
+        # Using the last element in BASH_SOURCE to find the entry script
         local script=${BASH_SOURCE[-1]}
-        print_fmt error "Command '$cmd' requires shell integration"
-        print_fmt warning "Environment variables will not persist in subshells"
-        echo >&2
-        print_fmt info "Fix: source $script $cmd"
-        print_fmt info "Or add to ~/$user_rc:"
+
+        # Call the logger utility
+        loggers::format error "Command '$cmd' requires shell integration"
+        loggers::format warning "This command requires shell integration."
+        loggers::format warning "Variables will not persist in subshells."
+
+        echo >&2 # Just a spacer
+
+        loggers::format info "Fix: source $script $cmd"
+        loggers::format info "Or add to ~/$user_rc:"
         echo -e "  ${FMT_CYAN}alias handsshake='source $script'${FMT_RESET}" >&2
+
         return 1
     fi
 }
