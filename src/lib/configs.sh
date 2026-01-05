@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/lib/configs.sh
 # shellcheck shell=bash
 
 if [[ -n "${HANDSSHAKE_CONFIGS_LOADED:-}" ]]; then

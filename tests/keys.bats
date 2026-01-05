@@ -29,26 +29,26 @@ load "test_helper"
       "^ssh-[a-z0-9-]+ [A-Za-z0-9+/=]+ handsshake-test-keys-format$"
 }
 
-@test "keys with -k flag works" {
+@test "keys with -e flag works" {
   local test_key
-  test_key=$(generate_test_identity "keys-k" "rsa")
+  test_key=$(generate_test_identity "keys-e" "rsa")
   
   run main attach "$test_key"
   assert_success
   
-  run main -k
+  run main -e
   assert_success
-  assert_output --partial "handsshake-test-keys-k"
+  assert_output --partial "handsshake-test-keys-e"
 }
 
-@test "keys with --keys flag works" {
+@test "keys with --export flag works" {
   local test_key
   test_key=$(generate_test_identity "keys-flag" "rsa")
   
   run main attach "$test_key"
   assert_success
   
-  run main --keys
+  run main --export
   assert_success
   assert_output --partial "handsshake-test-keys-flag"
 }

@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/services/agents.sh
 # shellcheck shell=bash
 
 # --- Dependencies ---

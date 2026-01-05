@@ -1,5 +1,8 @@
+#!/usr/bin/env bash
+# src/services/health.sh
 # shellcheck shell=bash
 # Source dependencies
+
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/../util/files.sh"
 # shellcheck source=/dev/null

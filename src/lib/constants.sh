@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/lib/constants.sh
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 

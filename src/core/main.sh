@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# src/core/main.sh
 # shellcheck shell=bash
 
 ########################################
@@ -50,7 +51,7 @@ Commands:
   detach <key_file> [S]  : Detach a specific key from the agent.
   flush [S]              : Flush all keys from the agent and records.
   list [X]               : List fingerprints of attached keys.
-  keys [X]               : List public strings of attached keys.
+  export [X]             : List public strings of attached keys.
   timeout <key> <sec>    : Update/Set timeout for a specific key.
   timeout --all <sec>    : Update timeout for ALL recorded keys.
   cleanup [X]            : Kill agent and remove session files.
@@ -81,22 +82,22 @@ main::dispatch() {
     shift
 
     case $cmd in
-        attach | -a | --attach) keys::attach "$@" ;;
-        detach | -d | --detach) keys::detach "$@" ;;
-        flush | -f | --flush) keys::flush "$@" ;;
-        list | -l | --list) keys::list "$@" ;;
-        keys | -k | --keys) keys::show_public "$@" ;;
-        timeout | -t | --timeout)
+        attach | -a | --attach) keys::attach "$@" || return ;;
+        detach | -d | --detach) keys::detach "$@" || return ;;
+        flush | -f | --flush) keys::flush "$@" || return ;;
+        list | -l | --list) keys::list "$@" || return ;;
+        export | -e | --export) keys::export "$@" || return ;;
+        timeout | -t | '--timeout')
             if [[ "$1" == "--all" ]]; then
                 shift
-                keys::update_all_timeouts "$@"
+                keys::update_timeouts "$@" || return
             else
-                keys::update_timeout "$@"
+                keys::update_timeout "$@" || return
             fi
             ;;
-        cleanup | -c | --cleanup) agents::stop "$@" ;;
-        health | -H | --health) health::check_all "$@" ;;
-        version | -v | --version) agents::version "$@" ;;
+        cleanup | -c | --cleanup) agents::stop "$@" || return ;;
+        health | -H | --health) health::check_all "$@" || return ;;
+        version | -v | --version) agents::version "$@" || return ;;
         help | -h | --help) main::usage 0 ;;
         *)
             loggers::error "Unknown command: $cmd"
@@ -133,7 +134,7 @@ main() {
 
     # 3. Execute command
     if [[ "$#" -gt 0 ]]; then
-        agents::ensure
+        # REMOVED: agents::ensure from here
         main::dispatch "$@"
     else
         return 0
@@ -148,7 +149,7 @@ main() {
 # 1. The script is being executed directly (always)
 # 2. The script is sourced AND arguments are provided
 if ! validators::is_sourced || [[ "$#" -gt 0 ]]; then
-    files::run_with_lock "$HANDSSHAKE_LOCK_FILE" main "$@"
+    files::lock "$HANDSSHAKE_LOCK_FILE" main "$@"
 else
     # Sourced with no arguments: Just initialize environment
     main

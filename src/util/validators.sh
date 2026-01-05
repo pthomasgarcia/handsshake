@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+# src/util/validators.sh
 # shellcheck shell=bash
+
 # ---------------------------------------------------------------------------
 #  HandSSHAKE – validator library
 #  ORDER: guards → internal → scalar → numeric → constraints → fs → ssh
@@ -295,9 +297,26 @@ validators::require_sourcing() {
 # Basic tool-chain check
 validators::environment() {
     local missing=()
+    # Current (in validators::environment)
     for tool in ssh ssh-add ssh-agent; do
         command -v "$tool" &> /dev/null || missing+=("$tool")
     done
+
+    # Recommended - validate full paths
+    for tool in ssh ssh-add ssh-agent; do
+        if ! command -v "$tool" &> /dev/null; then
+            missing+=("$tool")
+        else
+            # Ensure we're using system binaries, not user aliases
+            local full_path
+            full_path=$(command -v "$tool")
+            if [[ "$full_path" != /usr/bin/* ]] &&
+                [[ "$full_path" != /bin/* ]]; then
+                loggers::warn "Potentially unsafe $tool location: $full_path"
+            fi
+        fi
+    done
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         loggers::error "Missing required tools: ${missing[*]}"
         return 1
@@ -315,7 +334,7 @@ validators::command_context() {
     local cmd=$1
     local -a direct=(health list keys version cleanup help
         -h --help -v --version -l --list
-        -k --keys -c --cleanup -H --health)
+        -e --export -c --cleanup -H --health)
     local c
     for c in "${direct[@]}"; do [[ $cmd == "$c" ]] && return 0; done
     return 1

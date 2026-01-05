@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/util/files.sh
 # shellcheck shell=bash
 
 if [[ -n "${HANDSSHAKE_FILES_LOADED:-}" ]]; then
@@ -128,28 +130,36 @@ files::atomic_write() {
     return 0
 }
 
-files::run_with_lock() {
-    local lock_file="$1"
+files::lock() {
+    local file="$1"
     shift
-    local cmd_to_run=("$@")
+    local cmd=("$@")
 
-    files::validate_path "$lock_file" \
-        "files::run_with_lock: No lock file provided." || return 1
+    files::validate_path "$file" \
+        "files::lock: No file provided." || return 1
 
-    # Use the library function instead of raw shell commands
-    files::ensure_exists "$lock_file" || return 1
+    files::ensure_exists "$file" || return 1
 
-    (
-        exec 200>> "$lock_file"
+    # Open lock file on FD 200
+    exec 200>> "$file"
 
-        if ! flock -x 200; then
-            loggers::error "Failed to acquire lock on $lock_file."
-            exit 1
-        fi
+    if ! flock -x 200; then
+        local lock_holder
+        lock_holder=$(fuser "$file" 2> /dev/null || echo "unknown")
+        loggers::error "Failed to acquire lock on $file (held by: $lock_holder)"
+        exec 200>&-
+        return 1
+    fi
 
-        "${cmd_to_run[@]}"
-    )
-    return $?
+    # Execute command in current shell context
+    "${cmd[@]}"
+    local ret=$?
+
+    # Release lock and close FD
+    flock -u 200
+    exec 200>&-
+
+    return $ret
 }
 
 files::parse_agent_env() {

@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/util/loggers.sh
 # shellcheck shell=bash
 
 if [[ -n "${HANDSSHAKE_LOGGERS_LOADED:-}" ]]; then

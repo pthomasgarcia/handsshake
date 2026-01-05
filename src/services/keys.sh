@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# src/services/keys.sh
 # shellcheck shell=bash
 
 # --- Dependencies ---
@@ -53,13 +55,18 @@ keys::_clear_records() {
 
 keys::_get_fingerprint() {
     local key_file="$1"
+    if [[ "$key_file" =~ \.\.[\\/] ]] || [[ "$key_file" =~ ^~[^/] ]]; then
+        loggers::error "Invalid key file path: $key_file"
+        return 1
+    fi
+
     local fingerprint
-    # Extract SHA256 fingerprint
     fingerprint=$(ssh-keygen -lf "$key_file" 2> /dev/null | awk '{print $2}')
     if [[ -n "$fingerprint" ]]; then
         echo "$fingerprint"
         return 0
     fi
+
     return 1
 }
 
@@ -177,9 +184,9 @@ keys::list() {
     fi
 }
 
-# Usage: keys
-# Maps to keys|-k|--keys) keys "$@" ;;
-keys::show_public() {
+# Usage: export
+# Maps to export|-e|--export) export "$@" ;;
+keys::export() {
     agents::ensure
     ssh-add -L
 }
@@ -188,7 +195,7 @@ keys::show_public() {
 #        timeout --all <seconds> (Global)
 
 # Internal: Update Global Timeout
-keys::update_all_timeouts() {
+keys::update_timeouts() {
     agents::ensure
     local new_timeout="${1:-}"
 
@@ -208,7 +215,7 @@ keys::update_all_timeouts() {
     fi
 
     # Acquire lock for record modification (Defense-in-depth)
-    files::run_with_lock "$HANDSSHAKE_LOCK_FILE" \
+    files::lock "$HANDSSHAKE_LOCK_FILE" \
         keys::_perform_refresh "$new_timeout"
 
     return 0
